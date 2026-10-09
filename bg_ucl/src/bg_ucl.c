@@ -818,9 +818,18 @@ static int ko_bracket(uint16_t reg, uint32_t kind, const char* name)
 static int is_off(const char* key);
 void stale_sweep(void);
 void league_tick(void);
+/* Leaving a career for the main menu frees the career's blocks one by one. The tick asks the game
+   things (the title holders, 0x1415799E0) that go through owner + 0x78; read once it is null,
+   0x14159ECD0 fault (crash dump of 9 Oct 2026, from league_rows_eu). The tick does nothing then. */
+static int career_live(void)
+{
+  unsigned char* o = (unsigned char*)FN(owner_fn, OWNER_RVA)();
+  return o && *(void**)(o + 0x48) && *(void**)(o + 0x78);
+}
+
 __declspec(dllexport) void bg_ucl_tick(void)
 {
-  if (!g_base) return;
+  if (!g_base || !career_live()) return;
   stale_sweep();
   league_tick();
   int d = today();
