@@ -65,6 +65,10 @@
 #define PHFIN_RVA    0x1546c70
 #define PHKIND_RVA   0x150af30
 #define PHNAME_RVA   0x14cb830
+#define GCREATE_RVA  0x0af4e90   /* Competition Info: creates the group standings screen */
+#define LCREATE_RVA  0x0aed680   /* MenuModeCmnStandingsMenu::CreateObject, the league table that scrolls */
+#define LOPEN_RVA    0x0aeda10   /* its open, object in rcx */
+#define LCLOSE_RVA   0x0aed520   /* its destructor, object in rcx */
 #define PHREC_RVA    0x14fdbc0
 #define GSTAGE_RVA   0x151be10
 #define TEARDOWN_RVA 0x1314350
@@ -92,6 +96,9 @@ static const unsigned char SIG_STAND[15]= { 0x48,0x8b,0xc4,0x55,0x41,0x54,0x41,0
 static const unsigned char SIG_GNAME[15]= { 0x40,0x57,0x48,0x83,0xec,0x60,0x48,0xc7,0x44,0x24,0x28,0xfe,0xff,0xff,0xff };
 static const unsigned char SIG_CURPH[15]= { 0x88,0x54,0x24,0x10,0x55,0x56,0x57,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57 };
 static const unsigned char SIG_PHKIND[15]={ 0x89,0x54,0x24,0x10,0x48,0x89,0x4c,0x24,0x08,0x53,0x55,0x56,0x57,0x41,0x54 };
+static const unsigned char SIG_GCREATE[16]={ 0x48,0x89,0x5c,0x24,0x08,0x57,0x48,0x83,0xec,0x20,0x48,0x8b,0xfa,0x48,0x8b,0xd9 };
+static const unsigned char SIG_LOPEN[16] = { 0x48,0x8b,0xc4,0x55,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57,0x48,0x8d,0x68,0xa1 };
+static const unsigned char SIG_LCLOSE[15]= { 0x40,0x57,0x48,0x83,0xec,0x30,0x48,0xc7,0x44,0x24,0x20,0xfe,0xff,0xff,0xff };
 static const unsigned char SIG_PHNAME[17]={ 0x48,0x81,0xec,0x38,0x01,0x00,0x00,0x48,0x8d,0x54,0x24,0x20,0xe8,0x7f,0x23,0x03,0x00 };
 static const unsigned char SIG_GSTAGE[19]={ 0x40,0x57,0x41,0x56,0x41,0x57,0x48,0x83,0xec,0x40,0x48,0xc7,0x44,0x24,0x20,0xfe,0xff,0xff,0xff };
 static const unsigned char SIG_SADD[20] = { 0x44,0x88,0x4c,0x24,0x20,0x4c,0x89,0x44,0x24,0x18,0x66,0x89,0x54,0x24,0x10,0x48,0x89,0x4c,0x24,0x08 };
@@ -179,7 +186,7 @@ typedef uint64_t (*gstage_fn)(uint32_t* comp);
 static uint64_t g_base = 0;
 unsigned char *g_tramp_gen, *g_tramp_date, *g_tramp_group, *g_tramp_seed, *g_tramp_gdraw,
               *g_tramp_setcl, *g_tramp_prog, *g_tramp_stand, *g_tramp_gname, *g_tramp_curph,
-              *g_tramp_phkind, *g_tramp_phname, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
+              *g_tramp_phkind, *g_tramp_phname, *g_tramp_gcreate, *g_tramp_lopen, *g_tramp_lclose, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
 
 #define FN(t, rva) ((t)(uintptr_t)(g_base + (rva)))
 
@@ -1378,6 +1385,109 @@ __attribute__((naked)) void teardown_handler(void)
     "ret\n");
 }
 
+
+/* ------------------------------------------------------------------ the league phase on one page
+ *
+ * Competition Info shows the league phase on the group standings screen: nine rows a page, four
+ * pages for 36 clubs. The way of the UCL36 mod (Champions / Europa League with 36 clubs): when
+ * the tournament picked in the menu (model + 0x1787B5C: 2 Champions League, 3 Europa League) has
+ * its league phase table ready, the group screen's creator 0x140AF4E90 makes the league screen
+ * 0x140AED680 instead (MenuModeCmnStandingsMenu, one list that scrolls, same two arguments). That
+ * screen shows the knockout competition (4 / 6, [object + 0xA8]), whose table the game leaves
+ * empty. At its open the table of 4 / 6 is kept and the table of 1027 / 1029 -- 36 rows, the
+ * previous table, everything 0x790 bytes -- is put in its place; at its destructor the table of
+ * 4 / 6 is put back. Nothing else is written. 'onepage' in bg_ucl_off.txt switches it off. */
+#define KEY_OFF   0x1787b5c
+#define TBL_SIZE  0x790
+uint64_t g_lcreate;
+static int g_sw_ci = -1;                   /* the cup the creator switched for, -1 none */
+static void* g_lp_obj; static int g_lp_ci = -1; static unsigned char* g_lp_dst;
+static unsigned char g_lp_keep[TBL_SIZE];
+static unsigned char* cup_table(uint16_t id)
+{
+  if (!get_rec(id)) return 0;
+  return FN(table_fn, TABLE_RVA)(id);
+}
+int gcreate_pre(void* name, void* flag)
+{
+  (void)name; (void)flag;
+  g_sw_ci = -1;
+  if (is_off("onepage") || !career_live()) return 0;
+  unsigned char* m = (unsigned char*)model();
+  uint32_t key = *(uint32_t*)(m + KEY_OFF);
+  if (key != 2 && key != 3) return 0;
+  int ci = (int)key - 2;
+  unsigned char* ph = get_rec(CUPS[ci].row);
+  unsigned char* src = ph && rec_count(ph) >= MIN_CLUBS ? cup_table(CUPS[ci].row) : 0;
+  uint32_t rows = src ? *(uint32_t*)(src + 0x3c0) : 0;
+  unsigned char* dst = cup_table(CUPS[ci].ko);
+  if (rows < MIN_CLUBS || rows > MAX_CLUBS || !dst) {
+    logf("bg_ucl: %s standings -- group screen kept (league phase rows %u, table of reg %u %s)", CUPS[ci].name,
+         rows, (unsigned)CUPS[ci].ko, dst ? "found" : "missing");
+    return 0;
+  }
+  g_sw_ci = ci;
+  return 1;
+}
+void lopen_pre(void* obj)
+{
+  if (!obj || g_lp_obj == obj) return;
+  uint16_t comp = *(uint16_t*)((unsigned char*)obj + 0xa8);
+  int ci = g_sw_ci;
+  if (ci < 0 || comp != CUPS[ci].ko) return;
+  unsigned char* src = cup_table(CUPS[ci].row);
+  unsigned char* dst = cup_table(CUPS[ci].ko);
+  if (!src || !dst || src == dst) return;
+  if (g_lp_obj && g_lp_dst) memcpy(g_lp_dst, g_lp_keep, TBL_SIZE);   /* a screen whose close we missed */
+  memcpy(g_lp_keep, dst, TBL_SIZE);
+  memcpy(dst, src, TBL_SIZE);
+  g_lp_obj = obj; g_lp_ci = ci; g_lp_dst = dst;
+  g_sw_ci = -1;
+  logf("bg_ucl: %s standings -- %u rows of reg %u on one page (table of reg %u lent)", CUPS[ci].name,
+       *(uint32_t*)(src + 0x3c0), (unsigned)CUPS[ci].row, (unsigned)CUPS[ci].ko);
+}
+void lclose_pre(void* obj)
+{
+  if (!obj || obj != g_lp_obj || !g_lp_dst) return;
+  memcpy(g_lp_dst, g_lp_keep, TBL_SIZE);
+  logf("bg_ucl: %s standings -- table of reg %u put back", CUPS[g_lp_ci].name, (unsigned)CUPS[g_lp_ci].ko);
+  g_lp_obj = 0; g_lp_dst = 0; g_lp_ci = -1;
+}
+__attribute__((naked)) void gcreate_handler(void)
+{
+  __asm__ volatile(
+    "push %rcx\n" "push %rdx\n"
+    "sub  $0x28, %rsp\n"
+    "call gcreate_pre\n"
+    "add  $0x28, %rsp\n"
+    "pop  %rdx\n" "pop  %rcx\n"
+    "test %eax, %eax\n"
+    "jz   1f\n"
+    "jmp  *g_lcreate(%rip)\n"
+    "1:\n"
+    "jmp  *g_tramp_gcreate(%rip)\n");
+}
+__attribute__((naked)) void lopen_handler(void)
+{
+  __asm__ volatile(
+    "push %rcx\n" "push %rdx\n" "push %r8\n" "push %r9\n"
+    "sub  $0x28, %rsp\n"
+    "call lopen_pre\n"
+    "add  $0x28, %rsp\n"
+    "pop  %r9\n" "pop  %r8\n" "pop  %rdx\n" "pop  %rcx\n"
+    "jmp  *g_tramp_lopen(%rip)\n");
+}
+__attribute__((naked)) void lclose_handler(void)
+{
+  __asm__ volatile(
+    "push %rcx\n" "push %rdx\n" "push %r8\n" "push %r9\n"
+    "sub  $0x28, %rsp\n"
+    "call lclose_pre\n"
+    "add  $0x28, %rsp\n"
+    "pop  %r9\n" "pop  %r8\n" "pop  %rdx\n" "pop  %rcx\n"
+    "jmp  *g_tramp_lclose(%rip)\n");
+}
+
 #include "bg_league.inc"
 
 /* ------------------------------------------------------------------ install */
@@ -1436,6 +1546,7 @@ __declspec(dllexport) int bg_ucl_install(uint64_t exe_base)
 {
   read_off();
   g_base = exe_base;
+  g_lcreate = exe_base + LCREATE_RVA;
   hook_t H[] = {
     { GEN_RVA,      SIG_GEN,      16, (void*)gen_handler,      &g_tramp_gen,      "schedule", "gen" },
     { DATE_RVA,     SIG_DATE,     17, (void*)date_handler,     &g_tramp_date,     "dates", "date" },
@@ -1453,6 +1564,9 @@ __declspec(dllexport) int bg_ucl_install(uint64_t exe_base)
     { TEARDOWN_RVA, SIG_TEARDOWN, 14, (void*)teardown_handler, &g_tramp_teardown, "July teardown", "teardown" },
     { SUPER_RVA,    SIG_SUPER,    15, (void*)super_handler,    &g_tramp_super,    "super cups", "super" },
     { SADD_RVA,     SIG_SADD,     20, (void*)sadd_handler,     &g_tramp_sadd,     "season store", "sadd" },
+    { GCREATE_RVA,  SIG_GCREATE,  16, (void*)gcreate_handler,  &g_tramp_gcreate,  "standings screen choice", "onepage" },
+    { LOPEN_RVA,    SIG_LOPEN,    16, (void*)lopen_handler,    &g_tramp_lopen,    "league table open", "onepage" },
+    { LCLOSE_RVA,   SIG_LCLOSE,   15, (void*)lclose_handler,   &g_tramp_lclose,   "league table close", "onepage" },
   };
   int nh = (int)(sizeof H / sizeof H[0]);
   /* every signature is checked before anything is written: all or nothing */
