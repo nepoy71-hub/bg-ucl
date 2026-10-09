@@ -1065,10 +1065,31 @@ uint64_t curph_handler(uint64_t comp, uint64_t flag, uint64_t flag2)
 
 /* the Knockout Phase item is withheld until that phase is the current one (the page builder
    crashes on it before); the Europa League play-off item until it is drawn */
+/* Competition Info has two standings pages: "standings" (kind 2, the group page: nine rows a page,
+   so the league phase took four pages paged with L1/R1) and "standingsleague" (kind 1, the league
+   table of the domestic leagues: one list that scrolls). The menu (0x14151F88A) offers the second
+   only when the competition has a phase of kind 1. For the screens -- callers in the interface code
+   0x140A00000-0x140D00000 and the menu -- the league phase 1027 / 1029 is also the competition's
+   phase of kind 1. The season's own lookups (0x141542xxx, 0x1421A0xxx) see nothing new. */
+#define MENU_LEAGUE_RA 0x151f88f
+static int ui_caller(uintptr_t ra)
+{
+  uintptr_t r = ra - g_base;
+  return (r >= 0x0a00000 && r < 0x0d00000) || r == MENU_LEAGUE_RA;
+}
+
 uint64_t phkind_handler(uint32_t* comp, uint64_t kind)
 {
   uint64_t r = ((phkind_fn)(uintptr_t)g_tramp_phkind)(comp, kind);
   uintptr_t ra = (uintptr_t)__builtin_return_address(0);
+  if (comp && kind == 1 && (uint16_t)r == 0xffff && ui_caller(ra) && !is_off("leaguepage"))
+    for (int ci = 0; ci < 2; ci++) {
+      unsigned char* lg = find_rec(CUPS[ci].league);
+      if (!lg || *(uint32_t*)(lg + 0x80) != *comp || !get_rec(CUPS[ci].row)) continue;
+      say_once(18 + ci, "bg_ucl: %s -- league phase %u offered as a league table (asked from 14%07x)",
+               CUPS[ci].name, (unsigned)CUPS[ci].row, (unsigned)(ra - g_base));
+      return (r & ~0xffffull) | CUPS[ci].row;
+    }
   if (comp && (uint16_t)r != 0xffff &&
       ((kind == 3 && ra == g_base + MENU_KO_RA) || (kind == 4 && ra == g_base + MENU_KO4_RA))) {
     uint64_t cur = FN(curph_fn, CURPH_RVA)(*comp, 1, 0);
