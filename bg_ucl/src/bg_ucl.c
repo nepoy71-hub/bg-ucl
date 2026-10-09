@@ -20,6 +20,7 @@
  *     in reg 188 (added by the data step, a copy of reg 2 under competition 3). UEFA's fixed
  *     bracket, then the round of 16 against ranks 1-8.
  *   - knockout: quarter- and semi-finals kept in bracket order.
+ *   - calendar: the Konami group days of 3 / 5 are not shown as "Matchday N" rows with no opponent.
  *   - dates: every date is on a day that no European league or cup plays (checked against the
  *     exe's calendars with ucl_calcheck.py). UCL and UEL share their days -- different clubs.
  *   - Competition Info: 36-row table paged with L1/R1, "League Phase" header, phase order,
@@ -952,10 +953,6 @@ static uint64_t date_inner(uint64_t reg, void* vec)
   return ((date_fn)(uintptr_t)g_tramp_date)(reg, vec);
 }
 
-/* TEST: who asks for the dates of the European competitions, and what they get. The calendar
-   shows "Group stage Matchday N" (no opponent) on 15.09 / 29.09, days with league phase matches
-   that the club does not play; neither the club diary nor the day agenda holds anything there.
-   One line per (regulation, caller), up to 48 pairs. */
 /* The calendar screen (0x140CAF248, asking from 0x140CAF502 and, for a next stage through +0x78,
    from 0x140CAFD3E) shows every future date of a competition of the club that is not drawn
    (+0x304 bit 8) as "<competition> <phase> Matchday N" with no opponent, N = round + 1. The
@@ -971,7 +968,7 @@ uint64_t date_handler(uint64_t reg, void* vec)
 {
   uintptr_t ra = (uintptr_t)__builtin_return_address(0);
   uint64_t rv = date_inner(reg, vec);
-  uint16_t id = (uint16_t)reg, b = id & 0x3ff;
+  uint16_t id = (uint16_t)reg;
   if ((id == 3 || id == 5) && vec && (ra - g_base == CAL_ASK1 || ra - g_base == CAL_ASK2) && !is_off("calrows")) {
     vec_t* v = (vec_t*)vec;
     if (v->b && v->e > v->b) {
@@ -980,21 +977,6 @@ uint64_t date_handler(uint64_t reg, void* vec)
     }
     return rv;
   }
-  if (!vec || is_off("datelog") || !(b == 3 || b == 5 || id == 1027 || id == 1029 || (b >= 2 && b <= 6))) return rv;
-  static struct { uint16_t id; uint32_t ra; } seen[48]; static int nseen;
-  uint32_t r = (uint32_t)(ra - g_base);
-  for (int i = 0; i < nseen; i++) if (seen[i].id == id && seen[i].ra == r) return rv;
-  if (nseen >= 48) return rv;
-  seen[nseen].id = id; seen[nseen].ra = r; nseen++;
-  vec_t* v = (vec_t*)vec;
-  size_t have = (v->b && v->e >= v->b) ? (size_t)(v->e - v->b) / sizeof(date_t) : 0;
-  date_t* d = (date_t*)v->b;
-  char line[200]; int n = 0;
-  for (size_t i = 0; i < have && i < 18 && n < (int)sizeof line - 20; i++)
-    n += snprintf(line + n, sizeof line - n, " %u/%u/%u", d[i].day, d[i].round, d[i].kind);
-  line[n] = 0;
-  logf("bg_ucl: dates of reg %u asked from 14%07x (day %d): %u record(s):%s", (unsigned)id, r, today(),
-       (unsigned)have, line);
   return rv;
 }
 
