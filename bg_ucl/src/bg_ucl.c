@@ -949,6 +949,26 @@ static uint64_t date_inner(uint64_t reg, void* vec)
     say_once(6 + phase_ci(id), "bg_ucl: reg %u -- league phase dated: %d matchdays from day %u%s", (unsigned)id, FL26_SWISS36_MATCHDAYS, (unsigned)days[0], days == PHASE_DAYS_OLD ? " (drawn by an older build, kept)" : "");
     return rv;
   }
+  /* The Champions League and Europa League themselves (3 / 5) play no match: the league phase
+     is 1027 / 1029. Their dates are Konami's group stage, and the first days of rounds 1-6 of the
+     league phase (15.09, 29.09, 20.10, 03.11, 24.11, 08.12) are the same days -- the only pairs
+     that keep two clear days to every national match. On such a day the calendar shows
+     "Group stage Matchday N" with no opponent to a club of the phase that does not play then
+     (seen 15.09 / 29.09; 26.01, not a Konami day, shows nothing). A day of 3 / 5 that is a
+     league phase day is moved two days on, to a day with no European match. */
+  if ((id == 3 || id == 5) && !is_off("kday")) {
+    uint64_t rv = ((date_fn)(uintptr_t)g_tramp_date)(reg, vec);
+    vec_t* v = (vec_t*)vec;
+    size_t have = (v->b && v->e >= v->b) ? (size_t)(v->e - v->b) / sizeof(date_t) : 0;
+    date_t* r = (date_t*)v->b;
+    int moved = 0;
+    for (size_t i = 0; i < have; i++)
+      for (int j = 0; j < FL26_SWISS36_MATCHDAYS; j++)
+        if (r[i].day == PHASE_DAYS[j]) { r[i].day += 2; moved++; break; }
+    if (moved) say_once(11 + (id == 5), "bg_ucl: reg %u -- %d of its %u Konami dates were league phase days; moved 2 days on",
+                        (unsigned)id, moved, (unsigned)have);
+    return rv;
+  }
   return ((date_fn)(uintptr_t)g_tramp_date)(reg, vec);
 }
 
