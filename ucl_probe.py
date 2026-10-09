@@ -7,6 +7,7 @@
     py ucl_probe.py dups       всеки клуб с два мача на една и съща дата
     py ucl_probe.py ko         1/8-финалите с мястото на всеки клуб в лиговата фаза
     py ucl_probe.py diary      дневниците на клубовете за дните 90-130 (или: diary 250 364), и редовете без мач
+    py ucl_probe.py agenda     дневният ред по дни (редовете без мач в календара): agenda 250 364
     py ucl_probe.py diaryfix   поправя дневник, който сочи чужд мач (само показва; с --apply пише)
     py ucl_probe.py bg         къде е всеки клуб от българската първа лига в Европа
     py ucl_probe.py tables     изиграни мачове и точки в класиранията (натрупване?)
@@ -269,6 +270,48 @@ def cmd_diary(p, model):
         if lines:
             print("клуб %d (слот %d, суров %08x)" % (club, i, raw))
             print("\n".join(lines))
+
+
+def cmd_agenda(p, model):
+    """дневният ред на всеки ден (18 слота на +0x234 в записа на деня): u16 вид, u16 параметър,
+    u16 година, u8 месец, u8 ден; празен = вид 0x3F. До всеки ден: колко мача на 1027/1029 има
+    в деня и дали клубът от слот 0 на дневниците играе. Само чете.
+        agenda 250 364     или през Нова година: agenda 250 40"""
+    print("в играта е", E.today(p, model))
+    ev = {e["id"]: e for e in all_events(p, model)}
+    lo, hi = (int(sys.argv[2]), int(sys.argv[3])) if len(sys.argv) > 3 else (250, 364)
+    days = list(range(lo, hi + 1)) if lo <= hi else list(range(lo, 365)) + list(range(0, hi + 1))
+    at = model + E.CALENDAR + E.AG_BASE
+    me = struct.unpack("<I", p.read(at + E.AG_CLUB, 4))[0] >> E.TEAM_SHIFT
+    print("клуб от слот 0: %d (%s)" % (me, nm(me)))
+    for d in days:
+        rec = p.read(model + E.CALENDAR + d * 0x2C4, 0x2C4)
+        if not rec:
+            continue
+        cnt = struct.unpack_from("<H", rec, 0x230)[0]
+        ids = struct.unpack_from("<%dH" % min(cnt, 280), rec, 0) if cnt <= 280 else ()
+        euro = defaultdict(int)
+        mine = []
+        for i in ids:
+            e = ev.get(i)
+            if not e:
+                continue
+            if e["comp"] in (1027, 1029):
+                euro[e["comp"]] += 1
+            if me in (e["home"], e["away"]):
+                mine.append("%d %s-%s (комп %d)" % (i, nm(e["home"]), nm(e["away"]), e["comp"]))
+        slots = []
+        for k in range(18):
+            kind, par, yr, mo, dd = struct.unpack_from("<HHHBB", rec, 0x234 + 8 * k)
+            if kind == 0x3F:
+                continue
+            slots.append("вид %d парам %d (%02d.%02d.%d)" % (kind, par, dd, mo, yr))
+        if not slots and not euro and not mine:
+            continue
+        print("ден %3d  мачове %3d  1027:%-2d 1029:%-2d  %s" % (d, cnt, euro[1027], euro[1029],
+              ("клубът: " + "; ".join(mine)) if mine else "клубът не играе"))
+        for s_ in slots:
+            print("          ред: " + s_)
 
 
 def cmd_diaryfix(p, model):
@@ -1503,7 +1546,7 @@ def _main():
     p, base, model = attach()
     BASE[0] = base
     cmd = sys.argv[1] if len(sys.argv) > 1 else "state"
-    {"state": cmd_state, "dups": cmd_dups, "days": cmd_days, "ko": cmd_ko, "diary": cmd_diary, "diaryfix": cmd_diaryfix, "bg": cmd_bg, "tables": cmd_tables, "selfcarry": cmd_selfcarry, "super": cmd_super, "fields": cmd_fields, "slots": cmd_slots, "slotfix": cmd_slotfix, "extras": cmd_extras, "grpday": cmd_grpday, "order": cmd_order, "rounds": cmd_rounds, "comp": cmd_comp, "events": cmd_events, "stalefix": cmd_stalefix, "health": cmd_health, "snap": cmd_snap, "verify": cmd_verify, "fixtures": cmd_fixtures, "rebuild": cmd_rebuild, "rowfix": cmd_rowfix, "entrants": cmd_entrants, "countries": cmd_countries, "uclpo": cmd_uclpo, "rankfind": cmd_rankfind, "rankseek": cmd_rankseek, "ranks": cmd_ranks, "table": cmd_table, "uelwin": cmd_uelwin, "eurows": cmd_eurows}.get(cmd, cmd_state)(p, model)
+    {"state": cmd_state, "dups": cmd_dups, "days": cmd_days, "ko": cmd_ko, "diary": cmd_diary, "agenda": cmd_agenda, "diaryfix": cmd_diaryfix, "bg": cmd_bg, "tables": cmd_tables, "selfcarry": cmd_selfcarry, "super": cmd_super, "fields": cmd_fields, "slots": cmd_slots, "slotfix": cmd_slotfix, "extras": cmd_extras, "grpday": cmd_grpday, "order": cmd_order, "rounds": cmd_rounds, "comp": cmd_comp, "events": cmd_events, "stalefix": cmd_stalefix, "health": cmd_health, "snap": cmd_snap, "verify": cmd_verify, "fixtures": cmd_fixtures, "rebuild": cmd_rebuild, "rowfix": cmd_rowfix, "entrants": cmd_entrants, "countries": cmd_countries, "uclpo": cmd_uclpo, "rankfind": cmd_rankfind, "rankseek": cmd_rankseek, "ranks": cmd_ranks, "table": cmd_table, "uelwin": cmd_uelwin, "eurows": cmd_eurows}.get(cmd, cmd_state)(p, model)
 
 
 if __name__ == "__main__":
