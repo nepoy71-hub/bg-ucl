@@ -861,7 +861,7 @@ static int phase_on_old_days(uint16_t id)
   return 0;
 }
 
-uint64_t date_handler(uint64_t reg, void* vec)
+static uint64_t date_inner(uint64_t reg, void* vec)
 {
   uint16_t id = (uint16_t)reg;
   if (!vec) return ((date_fn)(uintptr_t)g_tramp_date)(reg, vec);
@@ -950,6 +950,33 @@ uint64_t date_handler(uint64_t reg, void* vec)
     return rv;
   }
   return ((date_fn)(uintptr_t)g_tramp_date)(reg, vec);
+}
+
+/* TEST: who asks for the dates of the European competitions, and what they get. The calendar
+   shows "Group stage Matchday N" (no opponent) on 15.09 / 29.09, days with league phase matches
+   that the club does not play; neither the club diary nor the day agenda holds anything there.
+   One line per (regulation, caller), up to 48 pairs. */
+uint64_t date_handler(uint64_t reg, void* vec)
+{
+  uintptr_t ra = (uintptr_t)__builtin_return_address(0);
+  uint64_t rv = date_inner(reg, vec);
+  uint16_t id = (uint16_t)reg, b = id & 0x3ff;
+  if (!vec || is_off("datelog") || !(b == 3 || b == 5 || id == 1027 || id == 1029 || (b >= 2 && b <= 6))) return rv;
+  static struct { uint16_t id; uint32_t ra; } seen[48]; static int nseen;
+  uint32_t r = (uint32_t)(ra - g_base);
+  for (int i = 0; i < nseen; i++) if (seen[i].id == id && seen[i].ra == r) return rv;
+  if (nseen >= 48) return rv;
+  seen[nseen].id = id; seen[nseen].ra = r; nseen++;
+  vec_t* v = (vec_t*)vec;
+  size_t have = (v->b && v->e >= v->b) ? (size_t)(v->e - v->b) / sizeof(date_t) : 0;
+  date_t* d = (date_t*)v->b;
+  char line[200]; int n = 0;
+  for (size_t i = 0; i < have && i < 18 && n < (int)sizeof line - 20; i++)
+    n += snprintf(line + n, sizeof line - n, " %u/%u/%u", d[i].day, d[i].round, d[i].kind);
+  line[n] = 0;
+  logf("bg_ucl: dates of reg %u asked from 14%07x (day %d): %u record(s):%s", (unsigned)id, r, today(),
+       (unsigned)have, line);
+  return rv;
 }
 
 /* ------------------------------------------------------------------ Competition Info */
@@ -1375,6 +1402,9 @@ static int g_bye_day = -1;
 static void bye_sweep(void)
 {
   int d = today();
+#ifdef LOG_ONLY
+  (void)d; return;                   /* the calendar test build only reads */
+#endif
   if (d < 0 || d == g_bye_day || is_off("byes")) return;
   g_bye_day = d;
   unsigned char* blk = (unsigned char*)model();
