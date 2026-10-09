@@ -949,25 +949,6 @@ static uint64_t date_inner(uint64_t reg, void* vec)
     say_once(6 + phase_ci(id), "bg_ucl: reg %u -- league phase dated: %d matchdays from day %u%s", (unsigned)id, FL26_SWISS36_MATCHDAYS, (unsigned)days[0], days == PHASE_DAYS_OLD ? " (drawn by an older build, kept)" : "");
     return rv;
   }
-  /* Konami's group rows of the two competitions, 1024 * k + 3 / + 5 (0x141581410 gives them the
-     six group days 15.09 ... 08.12, rounds 0-5, the Europa League's a day later). Only 1027 / 1029
-     are played; the others are never drawn. A tie of the August play-off (4098 = 1024 * 4 + 2)
-     names its group row (4099) as the next stage, and 0x14157B590 shows every date of a next
-     stage not drawn yet as "Group stage Matchday N" with no opponent: the winner of the play-off
-     got two such rows, on 15.09 and 29.09 (the other four days it plays itself). These rows get
-     no dates. */
-  if ((id & 0x3ff) == 3 || (id & 0x3ff) == 5) {
-    if (id >= 0x800 && !is_off("grpdays")) {
-      uint64_t rv = ((date_fn)(uintptr_t)g_tramp_date)(reg, vec);
-      vec_t* v = (vec_t*)vec;
-      size_t have = (v->b && v->e >= v->b) ? (size_t)(v->e - v->b) / sizeof(date_t) : 0;
-      if (have) {
-        v->e = v->b;
-        say_once(11, "bg_ucl: Konami group row %u -- its %u group days taken away (never played)", (unsigned)id, (unsigned)have);
-      }
-      return rv;
-    }
-  }
   return ((date_fn)(uintptr_t)g_tramp_date)(reg, vec);
 }
 
@@ -975,11 +956,30 @@ static uint64_t date_inner(uint64_t reg, void* vec)
    shows "Group stage Matchday N" (no opponent) on 15.09 / 29.09, days with league phase matches
    that the club does not play; neither the club diary nor the day agenda holds anything there.
    One line per (regulation, caller), up to 48 pairs. */
+/* The calendar screen (0x140CAF248, asking from 0x140CAF502 and, for a next stage through +0x78,
+   from 0x140CAFD3E) shows every future date of a competition of the club that is not drawn
+   (+0x304 bit 8) as "<competition> <phase> Matchday N" with no opponent, N = round + 1. The
+   Champions League and Europa League themselves (3 / 5) are never drawn -- their league phase
+   1027 / 1029 is -- and their dates are Konami's six group days (0x141581410: 15.09, 29.09,
+   20.10, 03.11, 24.11, 08.12, rounds 0-5; the Europa League's a day later). So a club of the
+   phase saw "Group stage Matchday 1 / 2" on the first two of them, the days it does not play
+   (on the other four its own match stands there). For those two callers 3 / 5 have no dates. */
+#define CAL_ASK1 0xcaf502
+#define CAL_ASK2 0xcafd3e
+
 uint64_t date_handler(uint64_t reg, void* vec)
 {
   uintptr_t ra = (uintptr_t)__builtin_return_address(0);
   uint64_t rv = date_inner(reg, vec);
   uint16_t id = (uint16_t)reg, b = id & 0x3ff;
+  if ((id == 3 || id == 5) && vec && (ra - g_base == CAL_ASK1 || ra - g_base == CAL_ASK2) && !is_off("calrows")) {
+    vec_t* v = (vec_t*)vec;
+    if (v->b && v->e > v->b) {
+      v->e = v->b;
+      say_once(11 + (id == 5), "bg_ucl: calendar -- the Konami group days of reg %u left out (its league phase has its own)", (unsigned)id);
+    }
+    return rv;
+  }
   if (!vec || is_off("datelog") || !(b == 3 || b == 5 || id == 1027 || id == 1029 || (b >= 2 && b <= 6))) return rv;
   static struct { uint16_t id; uint32_t ra; } seen[48]; static int nseen;
   uint32_t r = (uint32_t)(ra - g_base);
