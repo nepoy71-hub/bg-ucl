@@ -846,8 +846,8 @@ __declspec(dllexport) void bg_ucl_tick(void)
 /* ------------------------------------------------------------------ dates */
 static void say_once(int k, const char* fmt, ...)
 {
-  static unsigned char said[16];
-  if (k < 0 || k >= 16 || said[k]) return;
+  static unsigned char said[24];
+  if (k < 0 || k >= 24 || said[k]) return;
   said[k] = 1;
   char line[200]; va_list ap; va_start(ap, fmt); vsnprintf(line, sizeof line, fmt, ap); va_end(ap);
   logf("%s", line);
@@ -983,6 +983,17 @@ uint64_t date_handler(uint64_t reg, void* vec)
       say_once(11 + (id == 5), "bg_ucl: calendar -- the Konami group days of reg %u left out (its league phase has its own)", (unsigned)id);
     }
     return rv;
+  }
+  /* The same screen asks for the dates of the league phase itself; its "Matchday N" is the round of
+     the date + 1, and the 16 dates carry the matchdays 0-15 (date_handler), so a club's matches read
+     Matchday 2, 4, 5, 7 ... For this caller only the round is the UEFA round (index / 2): Matchday
+     1-8. The game's own lookups keep 0-15, the key of the fixture records. */
+  if ((id == 1027 || id == 1029) && vec && ra - g_base == CAL_ASK1 && !is_off("mdnum")) {
+    vec_t* v = (vec_t*)vec;
+    size_t have = (v->b && v->e >= v->b) ? (size_t)(v->e - v->b) / sizeof(date_t) : 0;
+    date_t* r = (date_t*)v->b;
+    for (size_t i = 0; i < have; i++) if (r[i].round < 46) r[i].round /= 2;
+    if (have) say_once(16 + (id == 1029), "bg_ucl: calendar -- reg %u dated by round (Matchday 1-8)", (unsigned)id);
   }
   return rv;
 }
