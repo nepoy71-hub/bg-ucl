@@ -65,6 +65,8 @@
 #define PHFIN_RVA    0x1546c70
 #define PHKIND_RVA   0x150af30
 #define PHNAME_RVA   0x14cb830
+#define HDR1_RVA     0x0cade70   /* "<phase> - Matchday N" of a match: calendar */
+#define HDR2_RVA     0x152a590   /* the same text: results of the day, news */
 #define PHREC_RVA    0x14fdbc0
 #define GSTAGE_RVA   0x151be10
 #define TEARDOWN_RVA 0x1314350
@@ -92,6 +94,7 @@ static const unsigned char SIG_STAND[15]= { 0x48,0x8b,0xc4,0x55,0x41,0x54,0x41,0
 static const unsigned char SIG_GNAME[15]= { 0x40,0x57,0x48,0x83,0xec,0x60,0x48,0xc7,0x44,0x24,0x28,0xfe,0xff,0xff,0xff };
 static const unsigned char SIG_CURPH[15]= { 0x88,0x54,0x24,0x10,0x55,0x56,0x57,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57 };
 static const unsigned char SIG_PHKIND[15]={ 0x89,0x54,0x24,0x10,0x48,0x89,0x4c,0x24,0x08,0x53,0x55,0x56,0x57,0x41,0x54 };
+static const unsigned char SIG_HDR[17] = { 0x40,0x55,0x56,0x57,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57,0x48,0x8d,0x6c,0x24,0xe0 };
 static const unsigned char SIG_PHNAME[17]={ 0x48,0x81,0xec,0x38,0x01,0x00,0x00,0x48,0x8d,0x54,0x24,0x20,0xe8,0x7f,0x23,0x03,0x00 };
 static const unsigned char SIG_GSTAGE[19]={ 0x40,0x57,0x41,0x56,0x41,0x57,0x48,0x83,0xec,0x40,0x48,0xc7,0x44,0x24,0x20,0xfe,0xff,0xff,0xff };
 static const unsigned char SIG_SADD[20] = { 0x44,0x88,0x4c,0x24,0x20,0x4c,0x89,0x44,0x24,0x18,0x66,0x89,0x54,0x24,0x10,0x48,0x89,0x4c,0x24,0x08 };
@@ -179,7 +182,7 @@ typedef uint64_t (*gstage_fn)(uint32_t* comp);
 static uint64_t g_base = 0;
 unsigned char *g_tramp_gen, *g_tramp_date, *g_tramp_group, *g_tramp_seed, *g_tramp_gdraw,
               *g_tramp_setcl, *g_tramp_prog, *g_tramp_stand, *g_tramp_gname, *g_tramp_curph,
-              *g_tramp_phkind, *g_tramp_phname, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
+              *g_tramp_phkind, *g_tramp_phname, *g_tramp_hdr1, *g_tramp_hdr2, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
 
 #define FN(t, rva) ((t)(uintptr_t)(g_base + (rva)))
 
@@ -1065,31 +1068,10 @@ uint64_t curph_handler(uint64_t comp, uint64_t flag, uint64_t flag2)
 
 /* the Knockout Phase item is withheld until that phase is the current one (the page builder
    crashes on it before); the Europa League play-off item until it is drawn */
-/* Competition Info has two standings pages: "standings" (kind 2, the group page: nine rows a page,
-   so the league phase took four pages paged with L1/R1) and "standingsleague" (kind 1, the league
-   table of the domestic leagues: one list that scrolls). The menu (0x14151F88A) offers the second
-   only when the competition has a phase of kind 1. For the screens -- callers in the interface code
-   0x140A00000-0x140D00000 and the menu -- the league phase 1027 / 1029 is also the competition's
-   phase of kind 1. The season's own lookups (0x141542xxx, 0x1421A0xxx) see nothing new. */
-#define MENU_LEAGUE_RA 0x151f88f
-static int ui_caller(uintptr_t ra)
-{
-  uintptr_t r = ra - g_base;
-  return (r >= 0x0a00000 && r < 0x0d00000) || r == MENU_LEAGUE_RA;
-}
-
 uint64_t phkind_handler(uint32_t* comp, uint64_t kind)
 {
   uint64_t r = ((phkind_fn)(uintptr_t)g_tramp_phkind)(comp, kind);
   uintptr_t ra = (uintptr_t)__builtin_return_address(0);
-  if (comp && kind == 1 && (uint16_t)r == 0xffff && ui_caller(ra) && !is_off("leaguepage"))
-    for (int ci = 0; ci < 2; ci++) {
-      unsigned char* lg = find_rec(CUPS[ci].league);
-      if (!lg || *(uint32_t*)(lg + 0x80) != *comp || !get_rec(CUPS[ci].row)) continue;
-      say_once(18 + ci, "bg_ucl: %s -- league phase %u offered as a league table (asked from 14%07x)",
-               CUPS[ci].name, (unsigned)CUPS[ci].row, (unsigned)(ra - g_base));
-      return (r & ~0xffffull) | CUPS[ci].row;
-    }
   if (comp && (uint16_t)r != 0xffff &&
       ((kind == 3 && ra == g_base + MENU_KO_RA) || (kind == 4 && ra == g_base + MENU_KO4_RA))) {
     uint64_t cur = FN(curph_fn, CURPH_RVA)(*comp, 1, 0);
@@ -1399,6 +1381,49 @@ __attribute__((naked)) void teardown_handler(void)
     "ret\n");
 }
 
+
+/* "Group stage - Matchday N" (calendar, results of the day, news): two twin builders take the
+   round code of the match and print code + 1. The league phase codes are its 16 matchdays 0-15
+   (also the key of the fixture records, so they stay), so a club's matches read Matchday 2, 4,
+   5, 7 ... At the entry of both, for the Champions / Europa League family (competition & 0x3ff =
+   3 / 5) a code below 46 is halved: Matchday 1-8, the UEFA round. Knockout codes (46+) pass.
+     0x140CADE70(obj, out, u16 competition = r8w, code = r9d, ...)
+     0x14152A590(obj, u16* competition = rdx, code = r8d, ...)                                */
+__attribute__((naked)) void hdr1_handler(void)
+{
+  __asm__ volatile(
+    "movzx %r8w, %eax\n"
+    "and  $0x3ff, %eax\n"
+    "cmp  $3, %eax\n"
+    "je   1f\n"
+    "cmp  $5, %eax\n"
+    "jne  2f\n"
+    "1:\n"
+    "cmp  $0x2e, %r9d\n"
+    "jae  2f\n"
+    "shr  $1, %r9d\n"
+    "2:\n"
+    "jmp  *g_tramp_hdr1(%rip)\n");
+}
+__attribute__((naked)) void hdr2_handler(void)
+{
+  __asm__ volatile(
+    "test %rdx, %rdx\n"
+    "je   2f\n"
+    "movzx (%rdx), %eax\n"
+    "and  $0x3ff, %eax\n"
+    "cmp  $3, %eax\n"
+    "je   1f\n"
+    "cmp  $5, %eax\n"
+    "jne  2f\n"
+    "1:\n"
+    "cmp  $0x2e, %r8d\n"
+    "jae  2f\n"
+    "shr  $1, %r8d\n"
+    "2:\n"
+    "jmp  *g_tramp_hdr2(%rip)\n");
+}
+
 #include "bg_league.inc"
 
 /* ------------------------------------------------------------------ install */
@@ -1474,6 +1499,8 @@ __declspec(dllexport) int bg_ucl_install(uint64_t exe_base)
     { TEARDOWN_RVA, SIG_TEARDOWN, 14, (void*)teardown_handler, &g_tramp_teardown, "July teardown", "teardown" },
     { SUPER_RVA,    SIG_SUPER,    15, (void*)super_handler,    &g_tramp_super,    "super cups", "super" },
     { SADD_RVA,     SIG_SADD,     20, (void*)sadd_handler,     &g_tramp_sadd,     "season store", "sadd" },
+    { HDR1_RVA,     SIG_HDR,      17, (void*)hdr1_handler,     &g_tramp_hdr1,     "matchday header (calendar)", "mdnum" },
+    { HDR2_RVA,     SIG_HDR,      17, (void*)hdr2_handler,     &g_tramp_hdr2,     "matchday header (results)", "mdnum" },
   };
   int nh = (int)(sizeof H / sizeof H[0]);
   /* every signature is checked before anything is written: all or nothing */
