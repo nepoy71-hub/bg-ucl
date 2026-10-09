@@ -7,6 +7,7 @@
     py ucl_probe.py dups       всеки клуб с два мача на една и съща дата
     py ucl_probe.py ko         1/8-финалите с мястото на всеки клуб в лиговата фаза
     py ucl_probe.py diary      дневниците на клубовете за дните 90-130 (или: diary 250 364), и редовете без мач
+    py ucl_probe.py diaryraw   дневникът на клуба суров, ден по ден, без филтър: diaryraw 250 280
     py ucl_probe.py agenda     дневният ред по дни (редовете без мач в календара): agenda 250 364
     py ucl_probe.py diaryfix   поправя дневник, който сочи чужд мач (само показва; с --apply пише)
     py ucl_probe.py bg         къде е всеки клуб от българската първа лига в Европа
@@ -312,6 +313,26 @@ def cmd_agenda(p, model):
               ("клубът: " + "; ".join(mine)) if mine else "клубът не играе"))
         for s_ in slots:
             print("          ред: " + s_)
+
+
+def cmd_diaryraw(p, model):
+    """всеки запис на дневника на клуба от слот 0 за дните lo..hi, суров, без филтър:
+    u16 мач, u16 състезание, u32 кръг, u32 +8, u32 клуб. Празният е FFFF FFFF 55 3 FFFFFFFF.
+        diaryraw 250 280"""
+    print("в играта е", E.today(p, model))
+    lo, hi = (int(sys.argv[2]), int(sys.argv[3])) if len(sys.argv) > 3 else (250, 280)
+    for i in range(E.AG_SLOTS):
+        at = model + E.CALENDAR + E.AG_BASE + i * E.AG_STRIDE
+        raw = struct.unpack("<I", p.read(at + E.AG_CLUB, 4))[0]
+        if raw == 0xFFFFFFFF or raw >> E.TEAM_SHIFT == 0:
+            continue
+        blob = p.read(at + E.AG_HEAD, 365 * E.AG_REC)
+        print("клуб %d (%s), слот %d, суров %08x" % (raw >> E.TEAM_SHIFT, nm(raw >> E.TEAM_SHIFT), i, raw))
+        for d in range(lo, hi + 1):
+            mid, comp, rnd, two, c = struct.unpack_from("<HHIII", blob, d * E.AG_REC)
+            blank = mid == 0xFFFF and comp == 0xFFFF and rnd == 55 and two == 3 and c == 0xFFFFFFFF
+            print("    ден %3d  мач %5d  комп %5d  кръг %-10d +8=%-10d клуб %08x%s"
+                  % (d, mid, comp, rnd, two, c, "" if blank else "   <--"))
 
 
 def cmd_diaryfix(p, model):
@@ -1546,7 +1567,7 @@ def _main():
     p, base, model = attach()
     BASE[0] = base
     cmd = sys.argv[1] if len(sys.argv) > 1 else "state"
-    {"state": cmd_state, "dups": cmd_dups, "days": cmd_days, "ko": cmd_ko, "diary": cmd_diary, "agenda": cmd_agenda, "diaryfix": cmd_diaryfix, "bg": cmd_bg, "tables": cmd_tables, "selfcarry": cmd_selfcarry, "super": cmd_super, "fields": cmd_fields, "slots": cmd_slots, "slotfix": cmd_slotfix, "extras": cmd_extras, "grpday": cmd_grpday, "order": cmd_order, "rounds": cmd_rounds, "comp": cmd_comp, "events": cmd_events, "stalefix": cmd_stalefix, "health": cmd_health, "snap": cmd_snap, "verify": cmd_verify, "fixtures": cmd_fixtures, "rebuild": cmd_rebuild, "rowfix": cmd_rowfix, "entrants": cmd_entrants, "countries": cmd_countries, "uclpo": cmd_uclpo, "rankfind": cmd_rankfind, "rankseek": cmd_rankseek, "ranks": cmd_ranks, "table": cmd_table, "uelwin": cmd_uelwin, "eurows": cmd_eurows}.get(cmd, cmd_state)(p, model)
+    {"state": cmd_state, "dups": cmd_dups, "days": cmd_days, "ko": cmd_ko, "diary": cmd_diary, "diaryraw": cmd_diaryraw, "agenda": cmd_agenda, "diaryfix": cmd_diaryfix, "bg": cmd_bg, "tables": cmd_tables, "selfcarry": cmd_selfcarry, "super": cmd_super, "fields": cmd_fields, "slots": cmd_slots, "slotfix": cmd_slotfix, "extras": cmd_extras, "grpday": cmd_grpday, "order": cmd_order, "rounds": cmd_rounds, "comp": cmd_comp, "events": cmd_events, "stalefix": cmd_stalefix, "health": cmd_health, "snap": cmd_snap, "verify": cmd_verify, "fixtures": cmd_fixtures, "rebuild": cmd_rebuild, "rowfix": cmd_rowfix, "entrants": cmd_entrants, "countries": cmd_countries, "uclpo": cmd_uclpo, "rankfind": cmd_rankfind, "rankseek": cmd_rankseek, "ranks": cmd_ranks, "table": cmd_table, "uelwin": cmd_uelwin, "eurows": cmd_eurows}.get(cmd, cmd_state)(p, model)
 
 
 if __name__ == "__main__":
