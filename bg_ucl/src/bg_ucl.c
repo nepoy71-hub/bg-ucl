@@ -830,8 +830,10 @@ static int career_live(void)
   return o && *(void**)(o + 0x48) && *(void**)(o + 0x78);
 }
 
+static void hdr_drain(void);
 __declspec(dllexport) void bg_ucl_tick(void)
 {
+  if (g_base) hdr_drain();
   if (!g_base || !career_live()) return;
   stale_sweep();
   league_tick();
@@ -1389,9 +1391,24 @@ __attribute__((naked)) void teardown_handler(void)
    3 / 5) a code below 46 is halved: Matchday 1-8, the UEFA round. Knockout codes (46+) pass.
      0x140CADE70(obj, out, u16 competition = r8w, code = r9d, ...)
      0x14152A590(obj, u16* competition = rdx, code = r8d, ...)                                */
+/* TEST: each call goes into a ring of 64 (which builder, competition, code), logged by the tick */
+uint64_t g_hdrlog[64];
+uint32_t g_hdri;
 __attribute__((naked)) void hdr1_handler(void)
 {
   __asm__ volatile(
+    "mov  g_hdri(%rip), %eax\n"
+    "and  $63, %eax\n"
+    "lea  g_hdrlog(%rip), %r10\n"
+    "movzx %r8w, %r11d\n"
+    "shl  $32, %r11\n"
+    "mov  %r9d, %eax\n"
+    "or   %rax, %r11\n"
+    "mov  g_hdri(%rip), %eax\n"
+    "and  $63, %eax\n"
+    "bts  $63, %r11\n"
+    "mov  %r11, (%r10,%rax,8)\n"
+    "incl g_hdri(%rip)\n"
     "movzx %r8w, %eax\n"
     "and  $0x3ff, %eax\n"
     "cmp  $3, %eax\n"
@@ -1410,6 +1427,15 @@ __attribute__((naked)) void hdr2_handler(void)
   __asm__ volatile(
     "test %rdx, %rdx\n"
     "je   2f\n"
+    "movzx (%rdx), %r11d\n"
+    "shl  $32, %r11\n"
+    "mov  %r8d, %r10d\n"
+    "or   %r10, %r11\n"
+    "mov  g_hdri(%rip), %eax\n"
+    "and  $63, %eax\n"
+    "lea  g_hdrlog(%rip), %r10\n"
+    "mov  %r11, (%r10,%rax,8)\n"
+    "incl g_hdri(%rip)\n"
     "movzx (%rdx), %eax\n"
     "and  $0x3ff, %eax\n"
     "cmp  $3, %eax\n"
@@ -1422,6 +1448,23 @@ __attribute__((naked)) void hdr2_handler(void)
     "shr  $1, %r8d\n"
     "2:\n"
     "jmp  *g_tramp_hdr2(%rip)\n");
+}
+
+
+static void hdr_drain(void)
+{
+  static uint32_t done; static uint64_t seen[48]; static int nseen;
+  uint32_t end = g_hdri;
+  if (end - done > 64) done = end - 64;
+  for (; done != end; done++) {
+    uint64_t e = g_hdrlog[done & 63];
+    int k; for (k = 0; k < nseen; k++) if (seen[k] == e) break;
+    if (k < nseen || nseen >= 48) continue;
+    seen[nseen++] = e;
+    logf("bg_ucl: TEST matchday header (%s) -- competition %u, code %u",
+         (e >> 63) ? "calendar 0x140CADE70" : "results 0x14152A590",
+         (unsigned)((e >> 32) & 0xffff), (unsigned)(e & 0xffffffff));
+  }
 }
 
 #include "bg_league.inc"
