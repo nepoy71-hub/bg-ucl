@@ -65,8 +65,6 @@
 #define PHFIN_RVA    0x1546c70
 #define PHKIND_RVA   0x150af30
 #define PHNAME_RVA   0x14cb830
-#define HDR1_RVA     0x0cade70   /* "<phase> - Matchday N" of a match: calendar */
-#define HDR2_RVA     0x152a590   /* the same text: results of the day, news */
 #define PHREC_RVA    0x14fdbc0
 #define GSTAGE_RVA   0x151be10
 #define TEARDOWN_RVA 0x1314350
@@ -94,7 +92,6 @@ static const unsigned char SIG_STAND[15]= { 0x48,0x8b,0xc4,0x55,0x41,0x54,0x41,0
 static const unsigned char SIG_GNAME[15]= { 0x40,0x57,0x48,0x83,0xec,0x60,0x48,0xc7,0x44,0x24,0x28,0xfe,0xff,0xff,0xff };
 static const unsigned char SIG_CURPH[15]= { 0x88,0x54,0x24,0x10,0x55,0x56,0x57,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57 };
 static const unsigned char SIG_PHKIND[15]={ 0x89,0x54,0x24,0x10,0x48,0x89,0x4c,0x24,0x08,0x53,0x55,0x56,0x57,0x41,0x54 };
-static const unsigned char SIG_HDR[17] = { 0x40,0x55,0x56,0x57,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57,0x48,0x8d,0x6c,0x24,0xe0 };
 static const unsigned char SIG_PHNAME[17]={ 0x48,0x81,0xec,0x38,0x01,0x00,0x00,0x48,0x8d,0x54,0x24,0x20,0xe8,0x7f,0x23,0x03,0x00 };
 static const unsigned char SIG_GSTAGE[19]={ 0x40,0x57,0x41,0x56,0x41,0x57,0x48,0x83,0xec,0x40,0x48,0xc7,0x44,0x24,0x20,0xfe,0xff,0xff,0xff };
 static const unsigned char SIG_SADD[20] = { 0x44,0x88,0x4c,0x24,0x20,0x4c,0x89,0x44,0x24,0x18,0x66,0x89,0x54,0x24,0x10,0x48,0x89,0x4c,0x24,0x08 };
@@ -182,7 +179,7 @@ typedef uint64_t (*gstage_fn)(uint32_t* comp);
 static uint64_t g_base = 0;
 unsigned char *g_tramp_gen, *g_tramp_date, *g_tramp_group, *g_tramp_seed, *g_tramp_gdraw,
               *g_tramp_setcl, *g_tramp_prog, *g_tramp_stand, *g_tramp_gname, *g_tramp_curph,
-              *g_tramp_phkind, *g_tramp_phname, *g_tramp_hdr1, *g_tramp_hdr2, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
+              *g_tramp_phkind, *g_tramp_phname, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
 
 #define FN(t, rva) ((t)(uintptr_t)(g_base + (rva)))
 
@@ -830,10 +827,8 @@ static int career_live(void)
   return o && *(void**)(o + 0x48) && *(void**)(o + 0x78);
 }
 
-static void hdr_drain(void);
 __declspec(dllexport) void bg_ucl_tick(void)
 {
-  if (g_base) hdr_drain();
   if (!g_base || !career_live()) return;
   stale_sweep();
   league_tick();
@@ -1383,90 +1378,6 @@ __attribute__((naked)) void teardown_handler(void)
     "ret\n");
 }
 
-
-/* "Group stage - Matchday N" (calendar, results of the day, news): two twin builders take the
-   round code of the match and print code + 1. The league phase codes are its 16 matchdays 0-15
-   (also the key of the fixture records, so they stay), so a club's matches read Matchday 2, 4,
-   5, 7 ... At the entry of both, for the Champions / Europa League family (competition & 0x3ff =
-   3 / 5) a code below 46 is halved: Matchday 1-8, the UEFA round. Knockout codes (46+) pass.
-     0x140CADE70(obj, out, u16 competition = r8w, code = r9d, ...)
-     0x14152A590(obj, u16* competition = rdx, code = r8d, ...)                                */
-/* TEST: each call goes into a ring of 64 (which builder, competition, code), logged by the tick */
-uint64_t g_hdrlog[64];
-uint32_t g_hdri;
-__attribute__((naked)) void hdr1_handler(void)
-{
-  __asm__ volatile(
-    "mov  g_hdri(%rip), %eax\n"
-    "and  $63, %eax\n"
-    "lea  g_hdrlog(%rip), %r10\n"
-    "movzx %r8w, %r11d\n"
-    "shl  $32, %r11\n"
-    "mov  %r9d, %eax\n"
-    "or   %rax, %r11\n"
-    "mov  g_hdri(%rip), %eax\n"
-    "and  $63, %eax\n"
-    "bts  $63, %r11\n"
-    "mov  %r11, (%r10,%rax,8)\n"
-    "incl g_hdri(%rip)\n"
-    "movzx %r8w, %eax\n"
-    "and  $0x3ff, %eax\n"
-    "cmp  $3, %eax\n"
-    "je   1f\n"
-    "cmp  $5, %eax\n"
-    "jne  2f\n"
-    "1:\n"
-    "cmp  $0x2e, %r9d\n"
-    "jae  2f\n"
-    "shr  $1, %r9d\n"
-    "2:\n"
-    "jmp  *g_tramp_hdr1(%rip)\n");
-}
-__attribute__((naked)) void hdr2_handler(void)
-{
-  __asm__ volatile(
-    "test %rdx, %rdx\n"
-    "je   2f\n"
-    "movzx (%rdx), %r11d\n"
-    "shl  $32, %r11\n"
-    "mov  %r8d, %r10d\n"
-    "or   %r10, %r11\n"
-    "mov  g_hdri(%rip), %eax\n"
-    "and  $63, %eax\n"
-    "lea  g_hdrlog(%rip), %r10\n"
-    "mov  %r11, (%r10,%rax,8)\n"
-    "incl g_hdri(%rip)\n"
-    "movzx (%rdx), %eax\n"
-    "and  $0x3ff, %eax\n"
-    "cmp  $3, %eax\n"
-    "je   1f\n"
-    "cmp  $5, %eax\n"
-    "jne  2f\n"
-    "1:\n"
-    "cmp  $0x2e, %r8d\n"
-    "jae  2f\n"
-    "shr  $1, %r8d\n"
-    "2:\n"
-    "jmp  *g_tramp_hdr2(%rip)\n");
-}
-
-
-static void hdr_drain(void)
-{
-  static uint32_t done; static uint64_t seen[48]; static int nseen;
-  uint32_t end = g_hdri;
-  if (end - done > 64) done = end - 64;
-  for (; done != end; done++) {
-    uint64_t e = g_hdrlog[done & 63];
-    int k; for (k = 0; k < nseen; k++) if (seen[k] == e) break;
-    if (k < nseen || nseen >= 48) continue;
-    seen[nseen++] = e;
-    logf("bg_ucl: TEST matchday header (%s) -- competition %u, code %u",
-         (e >> 63) ? "calendar 0x140CADE70" : "results 0x14152A590",
-         (unsigned)((e >> 32) & 0xffff), (unsigned)(e & 0xffffffff));
-  }
-}
-
 #include "bg_league.inc"
 
 /* ------------------------------------------------------------------ install */
@@ -1542,8 +1453,6 @@ __declspec(dllexport) int bg_ucl_install(uint64_t exe_base)
     { TEARDOWN_RVA, SIG_TEARDOWN, 14, (void*)teardown_handler, &g_tramp_teardown, "July teardown", "teardown" },
     { SUPER_RVA,    SIG_SUPER,    15, (void*)super_handler,    &g_tramp_super,    "super cups", "super" },
     { SADD_RVA,     SIG_SADD,     20, (void*)sadd_handler,     &g_tramp_sadd,     "season store", "sadd" },
-    { HDR1_RVA,     SIG_HDR,      17, (void*)hdr1_handler,     &g_tramp_hdr1,     "matchday header (calendar)", "mdnum" },
-    { HDR2_RVA,     SIG_HDR,      17, (void*)hdr2_handler,     &g_tramp_hdr2,     "matchday header (results)", "mdnum" },
   };
   int nh = (int)(sizeof H / sizeof H[0]);
   /* every signature is checked before anything is written: all or nothing */
