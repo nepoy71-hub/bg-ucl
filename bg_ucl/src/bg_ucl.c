@@ -818,12 +818,10 @@ static int ko_bracket(uint16_t reg, uint32_t kind, const char* name)
 static int is_off(const char* key);
 void stale_sweep(void);
 void league_tick(void);
-static void bye_sweep(void);
 __declspec(dllexport) void bg_ucl_tick(void)
 {
   if (!g_base) return;
   stale_sweep();
-  bye_sweep();
   league_tick();
   int d = today();
   abs_day();
@@ -1369,91 +1367,6 @@ __attribute__((naked)) void teardown_handler(void)
     "add  $0x28, %rsp\n"
     "pop  %rdi\n" "pop  %rsi\n" "pop  %rbp\n" "pop  %rbx\n"
     "ret\n");
-}
-
-/* A build of 9 Oct 2026 wrote index / 2 into the round of the club diary entries of the league
-   phase (+4), hoping for "Matchday 1-8" in the calendar. The calendar does not read it -- its
-   number is the round of the match itself (+6), which the game also uses as the key of the
-   round record, so it stays. The diary rounds are put back to the date index here. */
-static void renumber(unsigned char* e, uint16_t comp, int day, uint32_t club, int* renamed)
-{
-  (void)club;
-  const uint32_t* days = phase_on_old_days(comp) ? PHASE_DAYS_OLD : PHASE_DAYS;
-  int i = -1;
-  for (int j = 0; j < FL26_SWISS36_MATCHDAYS; j++) if (days[j] == (uint32_t)day) i = j;
-  if (i < 1) return;
-  uint32_t* rnd_ = (uint32_t*)(e + 4);
-  if (*rnd_ != (uint32_t)(i / 2)) return;
-  *rnd_ = (uint32_t)i;
-  (*renamed)++;
-}
-
-/* Days of the league phase on which a club has no match. A new career fills the club diaries
-   (see below) from the matches; the season rollover fills them from the 16 dates of 1027 / 1029,
-   one entry per date for every club of the phase, as if each club played every date. A club
-   plays 8 of the 16, so the other 8 stood in its calendar as "Group stage Matchday N" with no
-   opponent. Such an entry -- of 1027 / 1029 with no match, or with a match the club is not in --
-   is made blank here, a copy of a day of the same diary that holds nothing. Once per game day. */
-static int g_bye_day = -1;
-static void bye_sweep(void)
-{
-  int d = today();
-#ifdef LOG_ONLY
-  (void)d; return;                   /* the calendar test build only reads */
-#endif
-  if (d < 0 || d == g_bye_day || is_off("byes")) return;
-  g_bye_day = d;
-  unsigned char* blk = (unsigned char*)model();
-  if (!blk) return;
-  int cleared = 0, kept = 0, renamed = 0;
-  for (int g = 0; g < 32; g++) {
-    unsigned char* pr = blk + CAL_OFF + 0x3f180 + (size_t)g * 0x16dc;
-    uint32_t club = *(uint32_t*)(pr + 4);
-    if (club == 0xffffffffu || !(club >> 14)) continue;
-    unsigned char* blank = 0;
-    for (int k = 0; k < 365 && !blank; k++) {
-      unsigned char* e = pr + 8 + (size_t)k * 16;
-      if (*(uint16_t*)e == 0xffff && *(uint16_t*)(e + 2) == 0xffff) blank = e;
-    }
-    /* before the draw every date holds such an entry (opponent not known yet, research 7):
-       they go only once the club has a match of that phase in its diary */
-    int drawn[2] = { 0, 0 };
-    for (int k = 0; k < 365; k++) {
-      unsigned char* e = pr + 8 + (size_t)k * 16;
-      uint16_t mid = *(uint16_t*)e, comp = *(uint16_t*)(e + 2);
-      if (phase_ci(comp) < 0 || mid == 0xffff) continue;
-      unsigned char* m = ko_match(mid);
-      if (m && ((*(uint32_t*)(m + 0x14) & KO_TBD) == (club & KO_TBD) || (*(uint32_t*)(m + 0x18) & KO_TBD) == (club & KO_TBD)))
-        drawn[phase_ci(comp)] = 1;
-    }
-    for (int k = 0; k < 365; k++) {
-      unsigned char* e = pr + 8 + (size_t)k * 16;
-      uint16_t mid = *(uint16_t*)e, comp = *(uint16_t*)(e + 2);
-      if (phase_ci(comp) < 0) continue;
-      if (mid == 0xffff && !drawn[phase_ci(comp)]) continue;
-      if (mid != 0xffff) {
-        unsigned char* m = ko_match(mid);
-        if (!m) continue;
-        uint32_t h = *(uint32_t*)(m + 0x14), a = *(uint32_t*)(m + 0x18);
-        if ((h & KO_TBD) == (club & KO_TBD) || (a & KO_TBD) == (club & KO_TBD)) {
-          renumber(e, comp, k, club, &renamed);
-          continue;
-        }
-      }
-      if (!blank) { kept++; continue; }
-      static int shown;
-      if (!shown++) {
-        const uint32_t* w = (const uint32_t*)e; const uint32_t* b = (const uint32_t*)blank;
-        logf("bg_ucl: club %u day %d -- empty league phase entry %08x %08x %08x %08x, blank %08x %08x %08x %08x",
-             club >> 14, k, w[0], w[1], w[2], w[3], b[0], b[1], b[2], b[3]);
-      }
-      memcpy(e, blank, 16);
-      cleared++;
-    }
-  }
-  if (renamed) logf("bg_ucl: day %d -- %d league phase diary round(s) put back", d, renamed);
-  if (cleared) logf("bg_ucl: day %d -- %d league phase day(s) without a match taken out of the club calendars", d, cleared);
-  if (kept) say_once(10, "bg_ucl: day %d -- %d league phase day(s) without a match left in: no blank day to copy", d, kept);
 }
 
 #include "bg_league.inc"
