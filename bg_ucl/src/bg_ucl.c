@@ -65,7 +65,6 @@
 #define PHFIN_RVA    0x1546c70
 #define PHKIND_RVA   0x150af30
 #define PHNAME_RVA   0x14cb830
-#define MDNUM_RVA    0x1fde8e0   /* round code -> the number after "Matchday" */
 #define PHREC_RVA    0x14fdbc0
 #define GSTAGE_RVA   0x151be10
 #define TEARDOWN_RVA 0x1314350
@@ -93,7 +92,6 @@ static const unsigned char SIG_STAND[15]= { 0x48,0x8b,0xc4,0x55,0x41,0x54,0x41,0
 static const unsigned char SIG_GNAME[15]= { 0x40,0x57,0x48,0x83,0xec,0x60,0x48,0xc7,0x44,0x24,0x28,0xfe,0xff,0xff,0xff };
 static const unsigned char SIG_CURPH[15]= { 0x88,0x54,0x24,0x10,0x55,0x56,0x57,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57 };
 static const unsigned char SIG_PHKIND[15]={ 0x89,0x54,0x24,0x10,0x48,0x89,0x4c,0x24,0x08,0x53,0x55,0x56,0x57,0x41,0x54 };
-static const unsigned char SIG_MDNUM[16]= { 0x8d,0x41,0xd3,0x80,0xf9,0x2e,0x73,0x03,0x8d,0x41,0x01,0xc3,0xcc,0xcc,0xcc,0xcc };
 static const unsigned char SIG_PHNAME[17]={ 0x48,0x81,0xec,0x38,0x01,0x00,0x00,0x48,0x8d,0x54,0x24,0x20,0xe8,0x7f,0x23,0x03,0x00 };
 static const unsigned char SIG_GSTAGE[19]={ 0x40,0x57,0x41,0x56,0x41,0x57,0x48,0x83,0xec,0x40,0x48,0xc7,0x44,0x24,0x20,0xfe,0xff,0xff,0xff };
 static const unsigned char SIG_SADD[20] = { 0x44,0x88,0x4c,0x24,0x20,0x4c,0x89,0x44,0x24,0x18,0x66,0x89,0x54,0x24,0x10,0x48,0x89,0x4c,0x24,0x08 };
@@ -181,7 +179,7 @@ typedef uint64_t (*gstage_fn)(uint32_t* comp);
 static uint64_t g_base = 0;
 unsigned char *g_tramp_gen, *g_tramp_date, *g_tramp_group, *g_tramp_seed, *g_tramp_gdraw,
               *g_tramp_setcl, *g_tramp_prog, *g_tramp_stand, *g_tramp_gname, *g_tramp_curph,
-              *g_tramp_phkind, *g_tramp_phname, *g_tramp_mdnum, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
+              *g_tramp_phkind, *g_tramp_phname, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
 
 #define FN(t, rva) ((t)(uintptr_t)(g_base + (rva)))
 
@@ -1371,49 +1369,6 @@ __attribute__((naked)) void teardown_handler(void)
     "ret\n");
 }
 
-
-/* "Matchday N" in the calendar and the next-match strip: 0x141FDE8E0 turns a round code into the
-   number (code + 1 below 46, the knockout codes 46+ minus 45). A league phase round is played over
-   two matchdays whose codes are 0-15 (the code is also the key of the fixture record, so it stays),
-   so a club's matches read Matchday 2, 4, 5, 7 ... Full replacement: for 1027 / 1029 the number is
-   code / 2 + 1, the UEFA round. The two callers hold the competition in a saved register:
-   0x141FC694D in r13, 0x141FC8C79 in r14. Any other caller gets the game's own number. */
-uint64_t g_mdbase;
-__attribute__((naked)) void mdnum_handler(void)
-{
-  __asm__ volatile(
-    "mov  (%rsp), %r8\n"
-    "sub  g_mdbase(%rip), %r8\n"
-    "xor  %edx, %edx\n"
-    "cmp  $0x1fc6952, %r8\n"
-    "jne  1f\n"
-    "movzx %r13w, %edx\n"
-    "jmp  2f\n"
-    "1:\n"
-    "cmp  $0x1fc8c7e, %r8\n"
-    "jne  2f\n"
-    "movzx %r14w, %edx\n"
-    "2:\n"
-    "cmp  $0x403, %edx\n"
-    "je   3f\n"
-    "cmp  $0x405, %edx\n"
-    "jne  4f\n"
-    "3:\n"
-    "cmp  $0x2e, %cl\n"
-    "jae  4f\n"
-    "movzx %cl, %eax\n"
-    "shr  $1, %eax\n"
-    "inc  %eax\n"
-    "ret\n"
-    "4:\n"
-    "lea  -0x2d(%rcx), %eax\n"
-    "cmp  $0x2e, %cl\n"
-    "jae  5f\n"
-    "lea  1(%rcx), %eax\n"
-    "5:\n"
-    "ret\n");
-}
-
 #include "bg_league.inc"
 
 /* ------------------------------------------------------------------ install */
@@ -1472,7 +1427,6 @@ __declspec(dllexport) int bg_ucl_install(uint64_t exe_base)
 {
   read_off();
   g_base = exe_base;
-  g_mdbase = exe_base;
   hook_t H[] = {
     { GEN_RVA,      SIG_GEN,      16, (void*)gen_handler,      &g_tramp_gen,      "schedule", "gen" },
     { DATE_RVA,     SIG_DATE,     17, (void*)date_handler,     &g_tramp_date,     "dates", "date" },
@@ -1490,7 +1444,6 @@ __declspec(dllexport) int bg_ucl_install(uint64_t exe_base)
     { TEARDOWN_RVA, SIG_TEARDOWN, 14, (void*)teardown_handler, &g_tramp_teardown, "July teardown", "teardown" },
     { SUPER_RVA,    SIG_SUPER,    15, (void*)super_handler,    &g_tramp_super,    "super cups", "super" },
     { SADD_RVA,     SIG_SADD,     20, (void*)sadd_handler,     &g_tramp_sadd,     "season store", "sadd" },
-    { MDNUM_RVA,    SIG_MDNUM,    16, (void*)mdnum_handler,    &g_tramp_mdnum,    "matchday number", "mdnum" },
   };
   int nh = (int)(sizeof H / sizeof H[0]);
   /* every signature is checked before anything is written: all or nothing */
