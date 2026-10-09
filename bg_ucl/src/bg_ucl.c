@@ -1343,6 +1343,29 @@ __attribute__((naked)) void teardown_handler(void)
     "ret\n");
 }
 
+/* A round of the league phase is played over two dates, and the dates carry their own numbers
+   0-15 (date_handler), so a club's match on the second date of round 1 read "Matchday 2", that of
+   round 2 "Matchday 4". UEFA counts rounds: a club's 8 matches are Matchday 1 to 8. In the club
+   diary entry the date number is the u32 at +4 or the one at +8 -- whichever of the two equals
+   the index of the entry's day among the phase dates; it is set to the round (index / 2). The
+   new value no longer equals the index, so an entry is never halved twice. */
+static void renumber(unsigned char* e, uint16_t comp, int day, uint32_t club, int* renamed)
+{
+  if (is_off("mdnum")) return;
+  const uint32_t* days = phase_on_old_days(comp) ? PHASE_DAYS_OLD : PHASE_DAYS;
+  int i = -1;
+  for (int j = 0; j < FL26_SWISS36_MATCHDAYS; j++) if (days[j] == (uint32_t)day) i = j;
+  if (i < 1) return;                 /* not a phase date, or the first one (already 0) */
+  uint32_t* f4 = (uint32_t*)(e + 4); uint32_t* f8 = (uint32_t*)(e + 8);
+  static int shown;
+  if (!shown++) logf("bg_ucl: club %u day %d -- league phase match entry %08x %08x %08x %08x (date %d)",
+                     club >> 14, day, ((uint32_t*)e)[0], *f4, *f8, ((uint32_t*)e)[3], i);
+  int a = *f4 == (uint32_t)i, b = *f8 == (uint32_t)i;
+  if (a == b) return;                /* neither, or both: nothing safe to change */
+  *(a ? f4 : f8) = (uint32_t)(i / 2);
+  (*renamed)++;
+}
+
 /* Days of the league phase on which a club has no match. A new career fills the club diaries
    (see below) from the matches; the season rollover fills them from the 16 dates of 1027 / 1029,
    one entry per date for every club of the phase, as if each club played every date. A club
@@ -1357,7 +1380,7 @@ static void bye_sweep(void)
   g_bye_day = d;
   unsigned char* blk = (unsigned char*)model();
   if (!blk) return;
-  int cleared = 0, kept = 0;
+  int cleared = 0, kept = 0, renamed = 0;
   for (int g = 0; g < 32; g++) {
     unsigned char* pr = blk + CAL_OFF + 0x3f180 + (size_t)g * 0x16dc;
     uint32_t club = *(uint32_t*)(pr + 4);
@@ -1375,7 +1398,10 @@ static void bye_sweep(void)
         unsigned char* m = ko_match(mid);
         if (!m) continue;
         uint32_t h = *(uint32_t*)(m + 0x14), a = *(uint32_t*)(m + 0x18);
-        if ((h & KO_TBD) == (club & KO_TBD) || (a & KO_TBD) == (club & KO_TBD)) continue;
+        if ((h & KO_TBD) == (club & KO_TBD) || (a & KO_TBD) == (club & KO_TBD)) {
+          renumber(e, comp, k, club, &renamed);
+          continue;
+        }
       }
       if (!blank) { kept++; continue; }
       static int shown;
@@ -1388,6 +1414,7 @@ static void bye_sweep(void)
       cleared++;
     }
   }
+  if (renamed) logf("bg_ucl: day %d -- %d league phase match(es) in the club calendars numbered by round (Matchday 1-8)", d, renamed);
   if (cleared) logf("bg_ucl: day %d -- %d league phase day(s) without a match taken out of the club calendars", d, cleared);
   if (kept) say_once(10, "bg_ucl: day %d -- %d league phase day(s) without a match left in: no blank day to copy", d, kept);
 }
