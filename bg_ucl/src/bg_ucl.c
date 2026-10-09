@@ -1389,25 +1389,20 @@ __attribute__((naked)) void teardown_handler(void)
     "ret\n");
 }
 
-/* A round of the league phase is played over two dates, and the dates carry their own numbers
-   0-15 (date_handler; the fixture records are keyed by them, so they stay), so a club's match on
-   the second date of round 1 read "Matchday 2", that of round 2 "Matchday 4". UEFA counts rounds:
-   a club's 8 matches are Matchday 1 to 8. Only the club diary entry is renumbered: its round
-   (+4; +8 is always 2, research 18.1) goes from the date's index to index / 2. The new value no
-   longer equals the index, so an entry is never halved twice. */
+/* A build of 9 Oct 2026 wrote index / 2 into the round of the club diary entries of the league
+   phase (+4), hoping for "Matchday 1-8" in the calendar. The calendar does not read it -- its
+   number is the round of the match itself (+6), which the game also uses as the key of the
+   round record, so it stays. The diary rounds are put back to the date index here. */
 static void renumber(unsigned char* e, uint16_t comp, int day, uint32_t club, int* renamed)
 {
-  if (is_off("mdnum")) return;
+  (void)club;
   const uint32_t* days = phase_on_old_days(comp) ? PHASE_DAYS_OLD : PHASE_DAYS;
   int i = -1;
   for (int j = 0; j < FL26_SWISS36_MATCHDAYS; j++) if (days[j] == (uint32_t)day) i = j;
-  if (i < 1) return;                 /* not a phase date, or the first one (already 0) */
+  if (i < 1) return;
   uint32_t* rnd_ = (uint32_t*)(e + 4);
-  static int shown;
-  if (!shown++) logf("bg_ucl: club %u day %d -- league phase match entry %08x %08x %08x %08x (date %d)",
-                     club >> 14, day, ((uint32_t*)e)[0], rnd_[0], rnd_[1], rnd_[2], i);
-  if (*rnd_ != (uint32_t)i) return;
-  *rnd_ = (uint32_t)(i / 2);
+  if (*rnd_ != (uint32_t)(i / 2)) return;
+  *rnd_ = (uint32_t)i;
   (*renamed)++;
 }
 
@@ -1474,7 +1469,7 @@ static void bye_sweep(void)
       cleared++;
     }
   }
-  if (renamed) logf("bg_ucl: day %d -- %d league phase match(es) in the club calendars numbered by round (Matchday 1-8)", d, renamed);
+  if (renamed) logf("bg_ucl: day %d -- %d league phase diary round(s) put back", d, renamed);
   if (cleared) logf("bg_ucl: day %d -- %d league phase day(s) without a match taken out of the club calendars", d, cleared);
   if (kept) say_once(10, "bg_ucl: day %d -- %d league phase day(s) without a match left in: no blank day to copy", d, kept);
 }
