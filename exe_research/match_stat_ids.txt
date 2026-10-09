@@ -1,0 +1,55 @@
+  0  StatsPlayerGoal
+  0  UnqStatsPlayerDribbleAttack
+  1  StatsPlayerOwnGoal
+  1  UnqStatsPlayerShootShort
+  2  StatsPlayerFKGoal
+  2  UnqStatsPlayerShootMiddle
+  3  StatsPlayerPKGoal
+  3  UnqStatsPlayerShootLong
+  4  StatsPlayerAssist
+  6  StatsPlayerShoot
+ 12  StatsPlayerShootSuccess
+ 17  StatsPlayerShootInFrame
+ 21  StatsPlayerShootPK
+ 22  StatsPlayerPass
+ 23  StatsPlayerPassSuccess
+ 24  StatsPlayerPassShort
+ 25  StatsPlayerPassShortSuccess
+ 26  StatsPlayerPassThrouh
+ 27  StatsPlayerPassThrouhSuccess
+ 28  StatsPlayerPassLong
+ 29  StatsPlayerPassLongSuccess
+ 30  StatsPlayerCentering
+ 31  StatsPlayerCenteringSuccess
+ 49  StatsPlayerTackle
+ 50  StatsPlayerTackleSuccess
+ 51  StatsPlayerDispossessDelay
+ 52  StatsPlayerDispossessPress
+ 54  StatsPlayerClear
+ 55  StatsPlayerFoul
+ 56  StatsPlayerOffSide
+ 57  StatsPlayerCardYellow
+ 58  StatsPlayerCardRed
+ 61  StatsPlayerFK
+ 62  StatsPlayerIndirectFK
+ 63  StatsPlayerCK
+ 65  StatsPlayerDribble
+ 66  StatsPlayerDribbleSuccess
+ 67  StatsPlayerBallTouch
+ 77  StatsPlayerSnatchTotal
+ 78  StatsPlayerCutPass
+ 78  StatsPlayerSnatchByPassCut
+ 84  StatsPlayerSnatchByTackle
+ 85  StatsPlayerSnatchByTackle
+ 86  StatsPlayerSnatchByBlock
+ 87  StatsPlayerSnatchByWedge
+ 89  StatsPlayerSnatchedTotal
+ 90  StatsPlayerSnatchedDuringDribble
+ 91  StatsPlayerSnatchedDuringDribble
+ 92  StatsPlayerSnatchedDuringDribble
+ 93  StatsPlayerSnatchedDuringDribble
+ 94  StatsPlayerSnatchedDuringPass
+131  StatsPlayerGKShootFaced
+132  StatsPlayerGKInframeShootFaced
+133  StatsPlayerGKSave
+134  StatsPlayerGKShootPA
