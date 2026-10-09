@@ -65,7 +65,6 @@
 #define PHFIN_RVA    0x1546c70
 #define PHKIND_RVA   0x150af30
 #define PHNAME_RVA   0x14cb830
-#define MDNUM_RVA    0x1fde8e0   /* round code -> the number after "Matchday" */
 #define PHREC_RVA    0x14fdbc0
 #define GSTAGE_RVA   0x151be10
 #define TEARDOWN_RVA 0x1314350
@@ -93,7 +92,6 @@ static const unsigned char SIG_STAND[15]= { 0x48,0x8b,0xc4,0x55,0x41,0x54,0x41,0
 static const unsigned char SIG_GNAME[15]= { 0x40,0x57,0x48,0x83,0xec,0x60,0x48,0xc7,0x44,0x24,0x28,0xfe,0xff,0xff,0xff };
 static const unsigned char SIG_CURPH[15]= { 0x88,0x54,0x24,0x10,0x55,0x56,0x57,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57 };
 static const unsigned char SIG_PHKIND[15]={ 0x89,0x54,0x24,0x10,0x48,0x89,0x4c,0x24,0x08,0x53,0x55,0x56,0x57,0x41,0x54 };
-static const unsigned char SIG_MDNUM[16]= { 0x8d,0x41,0xd3,0x80,0xf9,0x2e,0x73,0x03,0x8d,0x41,0x01,0xc3,0xcc,0xcc,0xcc,0xcc };
 static const unsigned char SIG_PHNAME[17]={ 0x48,0x81,0xec,0x38,0x01,0x00,0x00,0x48,0x8d,0x54,0x24,0x20,0xe8,0x7f,0x23,0x03,0x00 };
 static const unsigned char SIG_GSTAGE[19]={ 0x40,0x57,0x41,0x56,0x41,0x57,0x48,0x83,0xec,0x40,0x48,0xc7,0x44,0x24,0x20,0xfe,0xff,0xff,0xff };
 static const unsigned char SIG_SADD[20] = { 0x44,0x88,0x4c,0x24,0x20,0x4c,0x89,0x44,0x24,0x18,0x66,0x89,0x54,0x24,0x10,0x48,0x89,0x4c,0x24,0x08 };
@@ -181,7 +179,7 @@ typedef uint64_t (*gstage_fn)(uint32_t* comp);
 static uint64_t g_base = 0;
 unsigned char *g_tramp_gen, *g_tramp_date, *g_tramp_group, *g_tramp_seed, *g_tramp_gdraw,
               *g_tramp_setcl, *g_tramp_prog, *g_tramp_stand, *g_tramp_gname, *g_tramp_curph,
-              *g_tramp_phkind, *g_tramp_phname, *g_tramp_mdnum, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
+              *g_tramp_phkind, *g_tramp_phname, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
 
 #define FN(t, rva) ((t)(uintptr_t)(g_base + (rva)))
 
@@ -829,10 +827,8 @@ static int career_live(void)
   return o && *(void**)(o + 0x48) && *(void**)(o + 0x78);
 }
 
-static void mdnum_drain(void);
 __declspec(dllexport) void bg_ucl_tick(void)
 {
-  if (g_base) mdnum_drain();
   if (!g_base || !career_live()) return;
   stale_sweep();
   league_tick();
@@ -850,8 +846,8 @@ __declspec(dllexport) void bg_ucl_tick(void)
 /* ------------------------------------------------------------------ dates */
 static void say_once(int k, const char* fmt, ...)
 {
-  static unsigned char said[24];
-  if (k < 0 || k >= 24 || said[k]) return;
+  static unsigned char said[16];
+  if (k < 0 || k >= 16 || said[k]) return;
   said[k] = 1;
   char line[200]; va_list ap; va_start(ap, fmt); vsnprintf(line, sizeof line, fmt, ap); va_end(ap);
   logf("%s", line);
@@ -987,17 +983,6 @@ uint64_t date_handler(uint64_t reg, void* vec)
       say_once(11 + (id == 5), "bg_ucl: calendar -- the Konami group days of reg %u left out (its league phase has its own)", (unsigned)id);
     }
     return rv;
-  }
-  /* The same screen asks for the dates of the league phase itself; its "Matchday N" is the round of
-     the date + 1, and the 16 dates carry the matchdays 0-15 (date_handler), so a club's matches read
-     Matchday 2, 4, 5, 7 ... For this caller only the round is the UEFA round (index / 2): Matchday
-     1-8. The game's own lookups keep 0-15, the key of the fixture records. */
-  if ((id == 1027 || id == 1029) && vec && ra - g_base == CAL_ASK1 && !is_off("mdnum")) {
-    vec_t* v = (vec_t*)vec;
-    size_t have = (v->b && v->e >= v->b) ? (size_t)(v->e - v->b) / sizeof(date_t) : 0;
-    date_t* r = (date_t*)v->b;
-    for (size_t i = 0; i < have; i++) if (r[i].round < 46) r[i].round /= 2;
-    if (have) say_once(16 + (id == 1029), "bg_ucl: calendar -- reg %u dated by round (Matchday 1-8)", (unsigned)id);
   }
   return rv;
 }
@@ -1393,80 +1378,6 @@ __attribute__((naked)) void teardown_handler(void)
     "ret\n");
 }
 
-
-/* "Matchday N": 0x141FDE8E0 turns a round code into the number (code + 1 below 46, the knockout
-   codes 46+ minus 45). The league phase codes are the 16 matchdays 0-15 (also the key of the
-   fixture records, so they stay), so a club's matches read Matchday 2, 4, 5, 7 ... Full
-   replacement: for the two competitions (3 / 5 and their rows 1027 / 1029) a code below 46 gives
-   code / 2 + 1, the UEFA round. The two known callers hold the competition in a saved register:
-   0x141FC694D in r13, 0x141FC8C79 in r14. TEST: every call is also written to a ring of 64
-   (caller, competition, code) that the tick logs, to see which screens come this way. */
-uint64_t g_mdbase;
-uint64_t g_mdlog[64];
-uint32_t g_mdi;
-__attribute__((naked)) void mdnum_handler(void)
-{
-  __asm__ volatile(
-    "mov  (%rsp), %r8\n"
-    "sub  g_mdbase(%rip), %r8\n"
-    "xor  %edx, %edx\n"
-    "cmp  $0x1fc6952, %r8\n"
-    "jne  1f\n"
-    "movzx %r13w, %edx\n"
-    "jmp  2f\n"
-    "1:\n"
-    "cmp  $0x1fc8c7e, %r8\n"
-    "jne  2f\n"
-    "movzx %r14w, %edx\n"
-    "2:\n"
-    "mov  g_mdi(%rip), %eax\n"
-    "and  $63, %eax\n"
-    "lea  g_mdlog(%rip), %r9\n"
-    "mov  %r8, %r10\n"
-    "shl  $32, %r10\n"
-    "mov  %edx, %r11d\n"
-    "shl  $16, %r11\n"
-    "or   %r11, %r10\n"
-    "movzx %cl, %r11d\n"
-    "or   %r11, %r10\n"
-    "mov  %r10, (%r9,%rax,8)\n"
-    "incl g_mdi(%rip)\n"
-    "mov  %edx, %eax\n"
-    "and  $0x3ff, %eax\n"
-    "cmp  $3, %eax\n"
-    "je   3f\n"
-    "cmp  $5, %eax\n"
-    "jne  4f\n"
-    "3:\n"
-    "cmp  $0x2e, %cl\n"
-    "jae  4f\n"
-    "movzx %cl, %eax\n"
-    "shr  $1, %eax\n"
-    "inc  %eax\n"
-    "ret\n"
-    "4:\n"
-    "lea  -0x2d(%rcx), %eax\n"
-    "cmp  $0x2e, %cl\n"
-    "jae  5f\n"
-    "lea  1(%rcx), %eax\n"
-    "5:\n"
-    "ret\n");
-}
-static void mdnum_drain(void)
-{
-  static uint32_t done; static uint64_t seen[48]; static int nseen;
-  uint32_t end = g_mdi;
-  if (end - done > 64) done = end - 64;
-  for (; done != end; done++) {
-    uint64_t e = g_mdlog[done & 63];
-    int k; for (k = 0; k < nseen; k++) if (seen[k] == e) break;
-    if (k < nseen || nseen >= 48) continue;
-    seen[nseen++] = e;
-    logf("bg_ucl: TEST matchday number asked from 14%07x for competition %u, code %u",
-         (unsigned)(e >> 32), (unsigned)((e >> 16) & 0xffff), (unsigned)(e & 0xff));
-  }
-}
-
 #include "bg_league.inc"
 
 /* ------------------------------------------------------------------ install */
@@ -1525,7 +1436,6 @@ __declspec(dllexport) int bg_ucl_install(uint64_t exe_base)
 {
   read_off();
   g_base = exe_base;
-  g_mdbase = exe_base;
   hook_t H[] = {
     { GEN_RVA,      SIG_GEN,      16, (void*)gen_handler,      &g_tramp_gen,      "schedule", "gen" },
     { DATE_RVA,     SIG_DATE,     17, (void*)date_handler,     &g_tramp_date,     "dates", "date" },
@@ -1543,7 +1453,6 @@ __declspec(dllexport) int bg_ucl_install(uint64_t exe_base)
     { TEARDOWN_RVA, SIG_TEARDOWN, 14, (void*)teardown_handler, &g_tramp_teardown, "July teardown", "teardown" },
     { SUPER_RVA,    SIG_SUPER,    15, (void*)super_handler,    &g_tramp_super,    "super cups", "super" },
     { SADD_RVA,     SIG_SADD,     20, (void*)sadd_handler,     &g_tramp_sadd,     "season store", "sadd" },
-    { MDNUM_RVA,    SIG_MDNUM,    16, (void*)mdnum_handler,    &g_tramp_mdnum,    "matchday number", "mdnum" },
   };
   int nh = (int)(sizeof H / sizeof H[0]);
   /* every signature is checked before anything is written: all or nothing */
