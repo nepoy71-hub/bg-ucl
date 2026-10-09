@@ -1,0 +1,128 @@
+{
+ "first_ml_uefa_season": 2026,
+ "fixed": {
+  "AUT": 1586,
+  "AZE": 4326,
+  "BUL": 4355,
+  "CRO": 1203,
+  "CYP": 9001,
+  "CZE": 5189,
+  "FIN": 1733,
+  "HUN": 2375,
+  "LTU": 199,
+  "LVA": 2092,
+  "MDA": 4347,
+  "NOR": 5253,
+  "POL": 1756,
+  "ROU": 1216,
+  "SRB": 1223,
+  "SUI": 1706,
+  "SVK": 4344,
+  "SWE": 1702,
+  "UKR": 1232
+ },
+ "leagues": {
+  "116": {
+   "assoc": "RUS",
+   "final": 116,
+   "phases": [
+    116
+   ]
+  },
+  "117": {
+   "assoc": "GRE",
+   "final": 117,
+   "phases": [
+    117
+   ]
+  },
+  "118": {
+   "assoc": "TUR",
+   "final": 118,
+   "phases": [
+    118
+   ]
+  },
+  "134": {
+   "assoc": "SCO",
+   "final": 133,
+   "phases": [
+    134,
+    135,
+    136
+   ]
+  },
+  "147": {
+   "assoc": "DEN",
+   "final": 141,
+   "phases": [
+    147,
+    148,
+    175,
+    151
+   ]
+  },
+  "155": {
+   "assoc": "BEL",
+   "final": 115,
+   "phases": [
+    155,
+    156,
+    172,
+    159
+   ]
+  },
+  "17": {
+   "assoc": "ENG",
+   "final": 17,
+   "phases": [
+    17
+   ]
+  },
+  "18": {
+   "assoc": "ITA",
+   "final": 18,
+   "phases": [
+    18
+   ]
+  },
+  "19": {
+   "assoc": "ESP",
+   "final": 19,
+   "phases": [
+    19
+   ]
+  },
+  "20": {
+   "assoc": "FRA",
+   "final": 20,
+   "phases": [
+    20
+   ]
+  },
+  "21": {
+   "assoc": "NED",
+   "final": 21,
+   "phases": [
+    21
+   ]
+  },
+  "22": {
+   "assoc": "POR",
+   "final": 22,
+   "phases": [
+    22
+   ]
+  },
+  "50": {
+   "assoc": "GER",
+   "final": 50,
+   "phases": [
+    50
+   ]
+  }
+ },
+ "suspended": [
+  "RUS"
+ ]
+}
