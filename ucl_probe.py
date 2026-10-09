@@ -6,7 +6,7 @@
     py ucl_probe.py            състоянието на всички фази на UCL и UEL
     py ucl_probe.py dups       всеки клуб с два мача на една и съща дата
     py ucl_probe.py ko         1/8-финалите с мястото на всеки клуб в лиговата фаза
-    py ucl_probe.py diary      дневниците на клубовете за дните 90-130 (или: diary 90 130)
+    py ucl_probe.py diary      дневниците на клубовете за дните 90-130 (или: diary 250 364), и редовете без мач
     py ucl_probe.py diaryfix   поправя дневник, който сочи чужд мач (само показва; с --apply пише)
     py ucl_probe.py bg         къде е всеки клуб от българската първа лига в Европа
     py ucl_probe.py tables     изиграни мачове и точки в класиранията (натрупване?)
@@ -255,12 +255,15 @@ def cmd_diary(p, model):
         for d in range(lo, hi + 1):
             o = d * E.AG_REC
             mid, comp = struct.unpack_from("<HH", blob, o)
-            if mid == 0xFFFF:
+            if mid == 0xFFFF and comp == 0xFFFF:
                 continue
             rnd, two, c = struct.unpack_from("<III", blob, o + 4)
             e = ev.get(mid)
-            m = "мач %d: %d - %d (комп %d)" % (mid, e["home"], e["away"], e["comp"]) if e else "мач %d: НЯМА" % mid
-            bad = "" if e and club in (e["home"], e["away"]) else "   <-- клубът не е в този мач"
+            if mid == 0xFFFF:
+                m, bad = "без мач", "   <-- ред в календара без съперник"
+            else:
+                m = "мач %d: %d - %d (комп %d)" % (mid, e["home"], e["away"], e["comp"]) if e else "мач %d: НЯМА" % mid
+                bad = "" if e and club in (e["home"], e["away"]) else "   <-- клубът не е в този мач"
             lines.append("    ден %3d  комп %-5d кръг %-4d +8=%d  +C=%08x (%d)  %s%s"
                          % (d, comp, rnd, two, c, c >> E.TEAM_SHIFT, m, bad))
         if lines:

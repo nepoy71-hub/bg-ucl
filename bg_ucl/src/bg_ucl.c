@@ -1344,11 +1344,11 @@ __attribute__((naked)) void teardown_handler(void)
 }
 
 /* A round of the league phase is played over two dates, and the dates carry their own numbers
-   0-15 (date_handler), so a club's match on the second date of round 1 read "Matchday 2", that of
-   round 2 "Matchday 4". UEFA counts rounds: a club's 8 matches are Matchday 1 to 8. In the club
-   diary entry the date number is the u32 at +4 or the one at +8 -- whichever of the two equals
-   the index of the entry's day among the phase dates; it is set to the round (index / 2). The
-   new value no longer equals the index, so an entry is never halved twice. */
+   0-15 (date_handler; the fixture records are keyed by them, so they stay), so a club's match on
+   the second date of round 1 read "Matchday 2", that of round 2 "Matchday 4". UEFA counts rounds:
+   a club's 8 matches are Matchday 1 to 8. Only the club diary entry is renumbered: its round
+   (+4; +8 is always 2, research 18.1) goes from the date's index to index / 2. The new value no
+   longer equals the index, so an entry is never halved twice. */
 static void renumber(unsigned char* e, uint16_t comp, int day, uint32_t club, int* renamed)
 {
   if (is_off("mdnum")) return;
@@ -1356,13 +1356,12 @@ static void renumber(unsigned char* e, uint16_t comp, int day, uint32_t club, in
   int i = -1;
   for (int j = 0; j < FL26_SWISS36_MATCHDAYS; j++) if (days[j] == (uint32_t)day) i = j;
   if (i < 1) return;                 /* not a phase date, or the first one (already 0) */
-  uint32_t* f4 = (uint32_t*)(e + 4); uint32_t* f8 = (uint32_t*)(e + 8);
+  uint32_t* rnd_ = (uint32_t*)(e + 4);
   static int shown;
   if (!shown++) logf("bg_ucl: club %u day %d -- league phase match entry %08x %08x %08x %08x (date %d)",
-                     club >> 14, day, ((uint32_t*)e)[0], *f4, *f8, ((uint32_t*)e)[3], i);
-  int a = *f4 == (uint32_t)i, b = *f8 == (uint32_t)i;
-  if (a == b) return;                /* neither, or both: nothing safe to change */
-  *(a ? f4 : f8) = (uint32_t)(i / 2);
+                     club >> 14, day, ((uint32_t*)e)[0], rnd_[0], rnd_[1], rnd_[2], i);
+  if (*rnd_ != (uint32_t)i) return;
+  *rnd_ = (uint32_t)(i / 2);
   (*renamed)++;
 }
 
@@ -1390,10 +1389,22 @@ static void bye_sweep(void)
       unsigned char* e = pr + 8 + (size_t)k * 16;
       if (*(uint16_t*)e == 0xffff && *(uint16_t*)(e + 2) == 0xffff) blank = e;
     }
+    /* before the draw every date holds such an entry (opponent not known yet, research 7):
+       they go only once the club has a match of that phase in its diary */
+    int drawn[2] = { 0, 0 };
+    for (int k = 0; k < 365; k++) {
+      unsigned char* e = pr + 8 + (size_t)k * 16;
+      uint16_t mid = *(uint16_t*)e, comp = *(uint16_t*)(e + 2);
+      if (phase_ci(comp) < 0 || mid == 0xffff) continue;
+      unsigned char* m = ko_match(mid);
+      if (m && ((*(uint32_t*)(m + 0x14) & KO_TBD) == (club & KO_TBD) || (*(uint32_t*)(m + 0x18) & KO_TBD) == (club & KO_TBD)))
+        drawn[phase_ci(comp)] = 1;
+    }
     for (int k = 0; k < 365; k++) {
       unsigned char* e = pr + 8 + (size_t)k * 16;
       uint16_t mid = *(uint16_t*)e, comp = *(uint16_t*)(e + 2);
       if (phase_ci(comp) < 0) continue;
+      if (mid == 0xffff && !drawn[phase_ci(comp)]) continue;
       if (mid != 0xffff) {
         unsigned char* m = ko_match(mid);
         if (!m) continue;
