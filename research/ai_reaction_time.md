@@ -1,7 +1,7 @@
 # COM defender reaction time - PES 2021 PC exe 1.01 (static analysis)
 
 Image base 0x140000000. [code] = read in the disassembly. GUESS = inferred, not proven.
-Data: PES2021_code.bin / PES2021_prot.bin dumps, constant_player.bin. Patch tool: exe_research/react_fix.py.
+Data: PES2021_code.bin / PES2021_prot.bin dumps, constant_player.bin. Patch tool: exe_research/ai_fix.py (replaces slide_fix.py and react_fix.py).
 
 ## 1. Short answer
 
@@ -90,10 +90,27 @@ direction, before the ball moves. Readers on the defending side [code]:
   PI+0x124 when it differs by > 10 deg and the animation is > 25 % done (and anime != 1). Patch 0x140639090 `74 45` -> `eb 45`.
 - 0x1407292c0 (Block anime): ball direction from PI+0x11c once a pass/shot/feint(0xc) animation is half done (0x140a4d970).
   Pass/shot blocks only, not dribble touches; left unchanged.
-react_fix.py `on` applies these three patches together with the 1 v 1 interval. Simulated on the dump; `off` restores the
+ai_fix.py makes these tunable (section 6). Simulated on the dump; `off` restores the
 bytes exactly. Not tested in game.
 
-## 6. Open items
+## 6. ai_fix.py - tunable version (one script)
+All patches as knobs; each can be set to `konami`. Fractions are "how much of the dribbler's touch animation must have passed
+before the defender may use the planned direction" (1 = never, only the real ball). Three floats live in the unused int3 run
+after 0x1405bebd0: 0x1405bf0b4 decide, 0x1405bf0b8 foot, 0x1405bf0bc press.
+| knob | site | Konami | patch |
+|---|---|---|---|
+| decide | 0x1405bebd0 | 0.7 (+ two "near" peeks without any check) | movss [rax+0x80] -> [rip->0x1405bf0b4]; 0x1405bef02 jne -> nop; 0x1405befbb je -> jmp |
+| foot | 0x14078edf0 | check only when [info+0x14] set | movss at 0x14078f0fb -> [rip->0x1405bf0b8]; 0x14078f0d9 je -> nop |
+| angle | 0x1407902c0 | cur >= total/2 | 0x140790652: movzx/imul eax,eax,K/shr 7/cmp/jbe (threshold total*K/128) |
+| press | 0x140638fb0 | 0.25 | mulss disp at 0x1406390c0 -> [rip->0x1405bf0bc] |
+| react | 0x140928710 | MATCH_UP 1, DELAY 2 frames | section 4 |
+| slide | 0x140971ba0 | chasing/attack-4 add to L | slide_fix.py 'slide' bytes |
+| sand | 0x140634470 | Pro+ PRESS + SAND | call -> xor eax,eax |
+decide=1 is the same as slide_fix.py 'see' (0x1405bed5f/0x1405bed6c); ai_fix detects those bytes and removes them when decide
+is set. Presets: light / fair (default) / strong. Simulated on the dump (every site disassembled, rip targets checked,
+`off` restores the bytes exactly). Not tested in game.
+
+## 7. Open items
 - Meaning of ball record type 5 (GUESS: shot - the replay listener looks for the last type-5 record).
 - How often the team plan T+0xa2a0 is recomputed (a new job bypasses the interval).
 - Whether the request R replayed between thinks holds a fixed point or a "follow player" target that the anime layer
