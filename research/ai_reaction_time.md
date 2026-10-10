@@ -124,6 +124,23 @@ match. New knobs:
 - `ai_fix.py injury`: read-only; finds Injury objects by scanning private RW memory for the vtable 0x14259ce20, validates
   the 80 dmg/st records, prints every (team, squad index) with accumulated damage, last hit, contact kind, time, period, state.
 
+## 7a. Slide frequency – idea for later (not in bg_gameplay.dll yet, 2026-10-10)
+User wants defenders to choose a slide a bit more often (as in real football), without more danger to his player and
+without a longer slide distance. There is no slide probability in the code: the decision is deterministic. What limits
+how often a slide is chosen [code]:
+- 0x140971ba0 runs only on odd frames: 0x140971cbc `and eax,1 ; test al,al` / 0x140971cc1 `74 da` (je → no slide on even
+  frames of S+0x1198). Standing tackles are checked every frame. Patch idea `slide_every_frame`: 0x140971cc1 → `90 90`.
+- Priority: the reaction dispatcher 0x140a06dd0 walks table 0x14263ec60 in order and the first handler that returns 1
+  wins: entry 1 = standing tackle 0x14096f870, entry 2 = slide 0x140971b60. When both are possible the AI always takes the
+  standing tackle. Idea `slide_preference = 0..100 %`: in the DLL, for X % of reaction checks try the slide handler first
+  (needs a hook on 0x140a06dd0 or on the table walk; the slide keeps all its own checks).
+- Other limits in 0x140971ba0 (not to be touched for now): 10 s cooldown after a ball-event record of type 0xb involving the
+  player (0x140971d26..0x140971d6d); only one slider per team within 100 m; skip when byte W+0x248f2[slot] > 1 or
+  W+0x247be[slot] > 1 (0x140971ccc / 0x140971cdb, meaning unknown; the tackle check skips at W+0x247be[slot] >= 3);
+  cpuLevel row 8 gate (slides only from Professional up).
+- Not chosen: lowering the angle/timing threshold 11 + 11*(3-L)/3 (0x140972296 / 0x1409722a3) – more slides but worse
+  timed ones, i.e. more hits on the player; raising the base distance 4.0 (0x140972163) – user does not want longer slides.
+
 ## 8. Open items
 - Meaning of ball record type 5 (GUESS: shot - the replay listener looks for the last type-5 record).
 - How often the team plan T+0xa2a0 is recomputed (a new job bypasses the interval).
