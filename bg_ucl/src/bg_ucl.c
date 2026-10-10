@@ -21,6 +21,8 @@
  *     bracket, then the round of 16 against ranks 1-8.
  *   - knockout: quarter- and semi-finals kept in bracket order.
  *   - calendar: the Konami group days of 3 / 5 are not shown as "Matchday N" rows with no opponent.
+ *   - standings: the league phase on the scrolling league table screen (Competition Info and after a
+ *     match), after the UCL36 mod.
  *   - dates: every date is on a day that no European league or cup plays (checked against the
  *     exe's calendars with ucl_calcheck.py). UCL and UEL share their days -- different clubs.
  *   - Competition Info: 36-row table paged with L1/R1, "League Phase" header, phase order,
