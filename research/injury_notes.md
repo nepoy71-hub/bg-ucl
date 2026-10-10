@@ -44,3 +44,22 @@ then: if dmg>85: res0 5%, res1 2%, res2 never -> dmg=200.  accum=min(255,accum+d
 st.sev=accum/200 ; state 0->3 if accum>=200, 0->2 if accum>=150, 2->3 if accum>=200
 pending=1 if (last>=85 or state==3) and PB(victim)[1]==0x11 and !0x140a638c0(ctx,victim) and !0x140a3c970(MatchInfo,team)
    and 0x140a3bfc0(MatchInfo,team) > MatchEnv+0x17 and (s8)team+0x254 * PA(victim)+0x55c > 0 and 0x1408c5310(team+0x8e08,pos,0,3)!=0
+
+
+## 2026-10-10 additions
+- Resistance: menu value 1/2/3 = ability byte 0x2f 0/1/2. Max resistance (3 in the menu) = 70 % halving, never the 200 jackpot.
+- Falling (base 100 instead of 50) is decided in 0x140844540 (called from 0x1408436da). Details and thresholds: constant_bins.md
+  section 2 (contact.json). Two ways to fall: (a) contact.back_charge_forced_falldown (+0x8) and the attacker comes from more than
+  135 deg off the victim's facing -> forced fall (0x140844789..0x1408447d0); (b) contact displacement 0x140842be0 > ragdoll size
+  (body / foot / jump / tackle; built-in fallbacks 0.3 / 0.8 / 0.6 / 0.6; larger size = fewer falls).
+- injury.json (constant_match 0xb: levelDamage* 120/180/220/240, symptomDamage* 120..250) is never fetched by readable code;
+  GUESS: the protected Init picks severity / kind from it.
+- Finding the Injury object from outside: scan private RW memory for the vtable qword 0x14259ce20 (rebased), check the 80 dmg / st
+  records (accum 0..255, period 0..11, state 0/2/3/4) and +0x1a4c (0..0x15 or 0xff). Implemented in exe_research/ai_fix.py `injury`.
+  First live read (2026-10-10, user away side, max resistance, one slide fall): away #1 accum 50 last 50 kind 5 time 52031.0 period 3;
+  home #26 accum 25. The time field units are unknown (not seconds of the clock).
+- Names (not yet verified live): H = [0x143705E10]; C = [H+0x50] + 0x35960; 80 player records C + 0x1308 + k*0x188, id at +0x30.
+  GUESS: k = team*40 + member index, the same index as dmg[e]. ai_fix `injury` prints id + the longest UTF-8 string of the record and
+  logs the raw record to ai_fix.txt for checking.
+- Knobs in ai_fix.py that change injuries: injury (scale the 100 / 50 bases, 0x140481707 / 0x14048171d), jackpot=off
+  (0x140481531), backfall=off (0x14084478d), slidemax / slide (how often and how riskily the AI slides).

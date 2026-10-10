@@ -119,6 +119,8 @@ match. New knobs:
 - slidemax: 0x140972065 `b8 03 00 00 00` -> `b8 NN 00 00 00` (cap of L; with cap < 3 no slides in own box, which needs L >= 3).
 - injury: 0x140481707 / 0x14048171d movss [100.0] / [50.0] -> rip to 0x140928fb8 / 0x140928fbc (100x / 50x).
 - jackpot: 0x140481531 `0f 42 da` (cmovb ebx,200) -> nop.
+- backfall: 0x14084478d `74 46` -> `eb 46` (skip contact.back_charge_forced_falldown, forced fall when hit from > 135 deg behind).
+- `injury` also prints the player id and a name guess from the match container (constant_bins.md, injury_notes.md).
 - `ai_fix.py injury`: read-only; finds Injury objects by scanning private RW memory for the vtable 0x14259ce20, validates
   the 80 dmg/st records, prints every (team, squad index) with accumulated damage, last hit, contact kind, time, period, state.
 

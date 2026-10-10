@@ -43,6 +43,10 @@
                  (важи и за двата отбора)
     jackpot=off  без лотарията: при удар над 85 щетата внезапно става 200
                  (шанс 5 % при устойчивост 0, 2 % при 1, 0 при 2)
+    backfall=off без задължителното падане при сблъсък отзад (над 135 градуса
+                 от посоката, в която гледаш).  Падането удвоява щетата (100
+                 вместо 50).  Същото като contact.json back_charge_forced_falldown=0.
+                 Другите проверки за падане остават.
     sand=off     без втория защитник (PRESS + SAND), когото AI праща от
                  Professional нагоре (така 1 срещу 1 става 2 срещу 1)
 
@@ -62,7 +66,7 @@
     py ai_fix.py on light                 друг профил
     py ai_fix.py on fair foot=0.9         профил и промяна на отделни регулатори
     py ai_fix.py set react=10 press=0.5   само тези (останалите не се пипат)
-    py ai_fix.py set slide=fix slidemax=2 jackpot=off
+    py ai_fix.py set slide=fix slidemax=2 jackpot=off backfall=off
     py ai_fix.py injury                   щетата в момента
     py ai_fix.py set angle=konami         един регулатор обратно на Konami
     py ai_fix.py off                      всичко както у Konami
@@ -398,7 +402,17 @@ JACKPOT = Knob(
     lambda s: "off" if s == "off" else (_ for _ in ()).throw(ValueError("off или konami")),
     lambda v: "без внезапните 200")
 
-KNOBS = [DECIDE, FOOT, ANGLE, PRESS, REACT, SLIDE, SLIDEMAX, SAND, INJURY, JACKPOT]
+# backfall: contact.json back_charge_forced_falldown - сблъсък отзад (над 135 градуса от посоката,
+#   в която гледа жертвата) събаря задължително (0x140844540 -> 0x140844789).  Падането = щета 100 вместо 50.
+BACKFALL = Knob(
+    "backfall",
+    [(0x14084478D, bytes.fromhex("7446"))],                  # je -> jmp: пропуска задължителното падане
+    lambda v: [bytes.fromhex("eb46")],
+    lambda cur: "off",
+    lambda s: "off" if s == "off" else (_ for _ in ()).throw(ValueError("off или konami")),
+    lambda v: "без задължително падане отзад")
+
+KNOBS = [DECIDE, FOOT, ANGLE, PRESS, REACT, SLIDE, SLIDEMAX, SAND, INJURY, JACKPOT, BACKFALL]
 BY_NAME = {k.name: k for k in KNOBS}
 
 # старото „see“ на slide_fix.py (изключва надничането в 0x1405bebd0 изцяло)
@@ -422,6 +436,7 @@ LABEL = {
     "slidemax": "таван на шпагатите",
     "injury": "щета при сблъсък",
     "jackpot": "лотария „200“",
+    "backfall": "падане при удар отзад",
 }
 
 
@@ -453,6 +468,46 @@ def injury_objects(p):
     return out
 
 
+MATCH_HOLDER = 0x143705E10      # H; контейнер на мача C = [H+0x50] + 0x35960 (form_and_team_spirit.md)
+
+
+def u64(b, o=0):
+    return struct.unpack_from("<Q", b, o)[0]
+
+
+def guess_name(rec):
+    """най-дългият четим UTF-8 низ в записа (непроверено къде точно е името)"""
+    best = ""
+    for chunk in rec.split(b"\0"):
+        try:
+            t = chunk.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        t = t.strip()
+        if len(t) >= 3 and sum(ch.isalpha() for ch in t) >= len(t) * 0.6 and len(t) > len(best):
+            best = t
+    return best
+
+
+def roster_records(p):
+    """{k: (id, име, байтове)} за 80-те записа на играчи в контейнера на мача, или {}"""
+    hb = p.read(MATCH_HOLDER, 8)
+    if not hb:
+        return {}
+    h = u64(hb)
+    cb = p.read_abs(h + 0x50, 8) if h else None
+    if not cb or not u64(cb):
+        return {}
+    c = u64(cb) + 0x35960
+    out = {}
+    for k in range(80):
+        rec = p.read_abs(c + 0x1308 + k * 0x188, 0x188)
+        if not rec or len(rec) < 0x188:
+            continue
+        out[k] = (struct.unpack_from("<I", rec, 0x30)[0], guess_name(rec), rec)
+    return out
+
+
 def injury_report(p):
     say("Търся обекта на контузиите в паметта (може да отнеме няколко секунди)...")
     objs = injury_objects(p)
@@ -466,12 +521,25 @@ def injury_report(p):
     if not rows:
         say("Никой няма натрупана щета.")
         return
+    try:
+        recs = roster_records(p)
+    except Exception:
+        recs = {}
     say("Натрупана щета (контузия на 200; 150-199 = риск). Последният удар е най-отгоре.")
-    say("  отбор  номер  щета  последен удар  вид  време/период")
+    say("  отбор  номер  щета  последен удар  вид  време/период  играч (id, име)")
+    raw = []
     for team, idx, acc, last, cause, kind, t, per, st in sorted(rows, key=lambda r: (r[7], r[6]), reverse=True):
-        say("  %-5s  %5d  %4.0f  %13.0f  %3d  %6.1f/%d  %s" % (
-            "дом." if team == 0 else "гост", idx, acc, last, cause, t, per, STATE.get(st, st)))
-    say("„номер“ е мястото на играча в състава (0 = първият в списъка на отбора).")
+        r = recs.get(team * 40 + idx)
+        who = ("%d %s" % (r[0], r[1])).strip() if r else "?"
+        say("  %-5s  %5d  %4.0f  %13.0f  %3d  %6.1f/%d  %-12s %s" % (
+            "дом." if team == 0 else "гост", idx, acc, last, cause, t, per, STATE.get(st, st), who))
+        if r:
+            raw.append((team, idx, r[2]))
+    say("„номер“ е мястото на играча в състава на отбора в мача.")
+    say("Името е намерено по догадка (запис k = отбор*40 + номер в контейнера на мача);")
+    say("ако не съвпада с играча, когото са свалили, кажи ми - суровите байтове са в ai_fix.txt.")
+    for team, idx, rec in raw:
+        _lines.append("RAW %d/%d %s" % (team, idx, rec.hex()))
 
 
 def legacy_see(p):
