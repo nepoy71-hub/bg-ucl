@@ -66,7 +66,7 @@ pending=1 if (last>=85 or state==3) and PB(victim)[1]==0x11 and !0x140a638c0(ctx
 
 ## 2026-10-10: injury from ONE hit (no 200 needed) [code, 0x140481d70]
 After AddDamage: state 0->3 at accum >= 200 ([0x1425a2668] 200.0), 0->2 at >= 150. Then **pending** (+0xddc = 1) if
-(lastDamage >= **85.0** ([0x142599e58], comiss at 0x140481ed2) OR state == 3) AND victim anime == 0x11 (fell) AND
+(lastDamage >= **85.0** ([0x14259be58], comiss at 0x140481ed2) OR state == 3) AND victim anime == 0x11 (fell) AND
 !0x140a638c0(victim) (victim == the team slot from 0x140a62610 – GUESS goalkeeper) AND !0x140a3c970 (no team player already
 flagged MatchInfo+0x175e) AND MatchEnv+0x17 < 0x140a3bfc0(...) AND team_dir * victim.x > 0 (victim in the OPPONENT half)
 AND 0x1408c5310(team+0x8e08, role, 0, 3) != 0. A pending victim is taken off injured at the next out-of-play commit with
