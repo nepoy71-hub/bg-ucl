@@ -69,6 +69,8 @@
 #define LCREATE_RVA  0x0aed680   /* MenuModeCmnStandingsMenu::CreateObject, the league table that scrolls */
 #define LOPEN_RVA    0x0aeda10   /* its open, object in rcx */
 #define LCLOSE_RVA   0x0aed520   /* its destructor, object in rcx */
+#define GAFTER_RVA   0x0af4e20   /* group screen maker the menu and the after-match path share */
+#define LAFTER_RVA   0x0aed610   /* its twin for the league screen, same three arguments */
 #define PHREC_RVA    0x14fdbc0
 #define GSTAGE_RVA   0x151be10
 #define TEARDOWN_RVA 0x1314350
@@ -186,7 +188,7 @@ typedef uint64_t (*gstage_fn)(uint32_t* comp);
 static uint64_t g_base = 0;
 unsigned char *g_tramp_gen, *g_tramp_date, *g_tramp_group, *g_tramp_seed, *g_tramp_gdraw,
               *g_tramp_setcl, *g_tramp_prog, *g_tramp_stand, *g_tramp_gname, *g_tramp_curph,
-              *g_tramp_phkind, *g_tramp_phname, *g_tramp_gcreate, *g_tramp_lopen, *g_tramp_lclose, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
+              *g_tramp_phkind, *g_tramp_phname, *g_tramp_gcreate, *g_tramp_lopen, *g_tramp_lclose, *g_tramp_gafter, *g_tramp_gstage, *g_tramp_teardown, *g_tramp_super, *g_tramp_sadd;
 
 #define FN(t, rva) ((t)(uintptr_t)(g_base + (rva)))
 
@@ -1399,7 +1401,7 @@ __attribute__((naked)) void teardown_handler(void)
  * 4 / 6 is put back. Nothing else is written. 'onepage' in bg_ucl_off.txt switches it off. */
 #define KEY_OFF   0x1787b5c
 #define TBL_SIZE  0x790
-uint64_t g_lcreate;
+uint64_t g_lcreate, g_lafter;
 static int g_sw_ci = -1;                   /* the cup the creator switched for, -1 none */
 static void* g_lp_obj; static int g_lp_ci = -1; static unsigned char* g_lp_dst;
 static unsigned char g_lp_keep[TBL_SIZE];
@@ -1408,14 +1410,14 @@ static unsigned char* cup_table(uint16_t id)
   if (!get_rec(id)) return 0;
   return FN(table_fn, TABLE_RVA)(id);
 }
-int gcreate_pre(void* name, void* flag)
+/* the tournament picked in the menu is the Champions / Europa League and its league phase table
+   is ready: the cup, else -1 (with a line saying why, once per screen) */
+static int onepage_cup(void)
 {
-  (void)name; (void)flag;
-  g_sw_ci = -1;
-  if (is_off("onepage") || !career_live()) return 0;
+  if (is_off("onepage") || !career_live()) return -1;
   unsigned char* m = (unsigned char*)model();
   uint32_t key = *(uint32_t*)(m + KEY_OFF);
-  if (key != 2 && key != 3) return 0;
+  if (key != 2 && key != 3) return -1;
   int ci = (int)key - 2;
   unsigned char* ph = get_rec(CUPS[ci].row);
   unsigned char* src = ph && rec_count(ph) >= MIN_CLUBS ? cup_table(CUPS[ci].row) : 0;
@@ -1424,8 +1426,29 @@ int gcreate_pre(void* name, void* flag)
   if (rows < MIN_CLUBS || rows > MAX_CLUBS || !dst) {
     logf("bg_ucl: %s standings -- group screen kept (league phase rows %u, table of reg %u %s)", CUPS[ci].name,
          rows, (unsigned)CUPS[ci].ko, dst ? "found" : "missing");
-    return 0;
+    return -1;
   }
+  return ci;
+}
+/* the menu's creator */
+int gcreate_pre(void* name, void* flag)
+{
+  (void)name; (void)flag;
+  g_sw_ci = onepage_cup();
+  return g_sw_ci >= 0;
+}
+/* 0x140AF4E20(name, flag, after_match): after a match (third argument not 0) the group screen is
+   made here, not through the menu's creator; the league twin 0x140AED610 takes the same three */
+int gafter_pre(void* name, uint64_t flag, uint64_t after)
+{
+  (void)name; (void)flag;
+  if (!(after & 0xff)) return 0;
+  int ci = onepage_cup();
+  if (ci < 0) return 0;
+  /* the menu key can be left over from an earlier visit: the competition picked (model +
+     0x1787B60) must be none (0xFFFF) or of this cup's family (& 0x3ff = 3 / 5) */
+  uint16_t chosen = *(uint16_t*)((unsigned char*)model() + 0x1787b60);
+  if (chosen != 0xffff && (chosen & 0x3ff) != (CUPS[ci].row & 0x3ff)) return 0;
   g_sw_ci = ci;
   return 1;
 }
@@ -1434,7 +1457,19 @@ void lopen_pre(void* obj)
   if (!obj || g_lp_obj == obj) return;
   uint16_t comp = *(uint16_t*)((unsigned char*)obj + 0xa8);
   int ci = g_sw_ci;
-  if (ci < 0 || comp != CUPS[ci].ko) return;
+  if (ci < 0) return;
+  if (comp != CUPS[ci].ko) {
+    /* after a match the screen comes with the competition of the match: the league phase row,
+       moved to the knockout competition whose table we lend (the screen then works as from the menu) */
+    if (comp != CUPS[ci].row) {
+      static uint16_t said_comp;
+      if (said_comp != comp) { said_comp = comp; logf("bg_ucl: %s standings -- league screen for reg %u, left alone", CUPS[ci].name, (unsigned)comp); }
+      return;
+    }
+    *(uint16_t*)((unsigned char*)obj + 0xa8) = CUPS[ci].ko;
+    logf("bg_ucl: %s standings -- after the match: league screen moved from reg %u to reg %u", CUPS[ci].name,
+         (unsigned)comp, (unsigned)CUPS[ci].ko);
+  }
   unsigned char* src = cup_table(CUPS[ci].row);
   unsigned char* dst = cup_table(CUPS[ci].ko);
   if (!src || !dst || src == dst) return;
@@ -1466,6 +1501,20 @@ __attribute__((naked)) void gcreate_handler(void)
     "jmp  *g_lcreate(%rip)\n"
     "1:\n"
     "jmp  *g_tramp_gcreate(%rip)\n");
+}
+__attribute__((naked)) void gafter_handler(void)
+{
+  __asm__ volatile(
+    "push %rcx\n" "push %rdx\n" "push %r8\n" "push %r9\n"
+    "sub  $0x28, %rsp\n"
+    "call gafter_pre\n"
+    "add  $0x28, %rsp\n"
+    "pop  %r9\n" "pop  %r8\n" "pop  %rdx\n" "pop  %rcx\n"
+    "test %eax, %eax\n"
+    "jz   1f\n"
+    "jmp  *g_lafter(%rip)\n"
+    "1:\n"
+    "jmp  *g_tramp_gafter(%rip)\n");
 }
 __attribute__((naked)) void lopen_handler(void)
 {
@@ -1547,6 +1596,7 @@ __declspec(dllexport) int bg_ucl_install(uint64_t exe_base)
   read_off();
   g_base = exe_base;
   g_lcreate = exe_base + LCREATE_RVA;
+  g_lafter = exe_base + LAFTER_RVA;
   hook_t H[] = {
     { GEN_RVA,      SIG_GEN,      16, (void*)gen_handler,      &g_tramp_gen,      "schedule", "gen" },
     { DATE_RVA,     SIG_DATE,     17, (void*)date_handler,     &g_tramp_date,     "dates", "date" },
@@ -1567,6 +1617,7 @@ __declspec(dllexport) int bg_ucl_install(uint64_t exe_base)
     { GCREATE_RVA,  SIG_GCREATE,  16, (void*)gcreate_handler,  &g_tramp_gcreate,  "standings screen choice", "onepage" },
     { LOPEN_RVA,    SIG_LOPEN,    16, (void*)lopen_handler,    &g_tramp_lopen,    "league table open", "onepage" },
     { LCLOSE_RVA,   SIG_LCLOSE,   15, (void*)lclose_handler,   &g_tramp_lclose,   "league table close", "onepage" },
+    { GAFTER_RVA,   SIG_LCLOSE,   15, (void*)gafter_handler,   &g_tramp_gafter,   "standings after a match", "onepage" },
   };
   int nh = (int)(sizeof H / sizeof H[0]);
   /* every signature is checked before anything is written: all or nothing */
