@@ -63,3 +63,15 @@ pending=1 if (last>=85 or state==3) and PB(victim)[1]==0x11 and !0x140a638c0(ctx
   logs the raw record to ai_fix.txt for checking.
 - Knobs in ai_fix.py that change injuries: injury (scale the 100 / 50 bases, 0x140481707 / 0x14048171d), jackpot=off
   (0x140481531), backfall=off (0x14084478d), slidemax / slide (how often and how riskily the AI slides).
+
+## 2026-10-10: injury from ONE hit (no 200 needed) [code, 0x140481d70]
+After AddDamage: state 0->3 at accum >= 200 ([0x1425a2668] 200.0), 0->2 at >= 150. Then **pending** (+0xddc = 1) if
+(lastDamage >= **85.0** ([0x142599e58], comiss at 0x140481ed2) OR state == 3) AND victim anime == 0x11 (fell) AND
+!0x140a638c0(victim) (victim == the team slot from 0x140a62610 – GUESS goalkeeper) AND !0x140a3c970 (no team player already
+flagged MatchInfo+0x175e) AND MatchEnv+0x17 < 0x140a3bfc0(...) AND team_dir * victim.x > 0 (victim in the OPPONENT half)
+AND 0x1408c5310(team+0x8e08, role, 0, 3) != 0. A pending victim is taken off injured at the next out-of-play commit with
+judge kind 5 (free kick) – 0x140482010 → +0x1a4c = victim.
+No human / score / tier / minute input in any of these checks.
+Consequence: one fall with damage >= 85 in the opponent half + a foul = injury. A fast slide from behind gives ~100-125;
+max resistance halves it in 70 % of cases, so ~30 % of such falls still pass 85.
+Knob idea: injury_single_hit = threshold (Konami 85), redirect of the comiss operand at 0x140481ed2.
