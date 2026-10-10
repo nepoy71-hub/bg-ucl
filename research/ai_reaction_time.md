@@ -73,7 +73,27 @@ Simulated on the dump for every action 5..0x4f: only DELAY and MATCH_UP change (
 Optional `nosand`: 0x1406344a7 `e8 24 c0 42 00` -> `31 c0 90 90 90` (the Pro+ function exits at once).
 Live memory only; run it in the menus, not during a match. Not tested in game. Code-integrity reaction not checked.
 
-## 5. Open items
+## 5. Peeking at the next touch (the "foot already in the path" effect)
+Anime ids (enum strings at 0x142652...): 4 DRIBBLE, 5 DRIBBLE_SIDE_BACK, 6 DRIBBLE_STEP_MOVE, 7 TRAP, 8 LONG_PASS, 9 SHORT_PASS,
+0xa SHOOT, 0xb SLIDING, 0xc SLIDING_KEEP, 0xd TACKLE, 0xe BLOCK, 0x12 FEINT. Class flags per anime at 0x1426484f0:
+0x140a6e150 = dribble (4,5,6), 0x140a6e5e0 = trap (7), 0x140a6e320 = kicks (passes, shots, set-piece kicks), 0x140a6e1c0 = feint.
+The dribbler's planned next-touch direction is PI+0x11c (dribble/kick) / PI+0x124 (other), written when the stick picks the
+direction, before the ball moves. Readers on the defending side [code]:
+- 0x1405bebd0: tackle/slide decision target (ai_tackle_decision.md section 5; slide_fix.py `see`).
+- 0x14078edf0 (Tackle@action@anime vfn13 0x1407902c0 -> 0x140791870 -> 0x14078b550 -> 0x14078a640): foot target of the
+  running tackle animation. Holder in dribble/trap, his next touch comes before the tackle lands, direction change > 11.25 deg:
+  target = ballPos(remaining+1) moved along PI+0x11c. The forecastHitRate 0.7 check only runs when flag [info+0x14] is set.
+  Patch 0x14078f05b `e8 f0 f0 2d 00 84 c0 75 10` -> `e9 e9 01 00 00 90 90 90 90` (keep ballPos(frames+1)).
+- 0x1407902c0 itself: the holder's body angle for picking the tackle uses PM+0x554, replaced by PI+0x124 once the holder's
+  animation is half done (not class 0x140a6e300). Patch 0x140790662 `72 19` -> `eb 19`.
+- 0x140638fb0 (team press, callers 0x1405344b0, 0x140637f90, 0x1406394cd): the carrier's heading is PM+0x554, replaced by
+  PI+0x124 when it differs by > 10 deg and the animation is > 25 % done (and anime != 1). Patch 0x140639090 `74 45` -> `eb 45`.
+- 0x1407292c0 (Block anime): ball direction from PI+0x11c once a pass/shot/feint(0xc) animation is half done (0x140a4d970).
+  Pass/shot blocks only, not dribble touches; left unchanged.
+react_fix.py `on` applies these three patches together with the 1 v 1 interval. Simulated on the dump; `off` restores the
+bytes exactly. Not tested in game.
+
+## 6. Open items
 - Meaning of ball record type 5 (GUESS: shot - the replay listener looks for the last type-5 record).
 - How often the team plan T+0xa2a0 is recomputed (a new job bypasses the interval).
 - Whether the request R replayed between thinks holds a fixed point or a "follow player" target that the anime layer
