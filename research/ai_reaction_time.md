@@ -110,7 +110,19 @@ decide=1 is the same as slide_fix.py 'see' (0x1405bed5f/0x1405bed6c); ai_fix det
 is set. Presets: light / fair (default) / strong. Simulated on the dump (every site disassembled, rip targets checked,
 `off` restores the bytes exactly). Not tested in game.
 
-## 7. Open items
+## 7. Slides when the human leads, and injuries (ai_fix.py)
+Damage per contact (injury_notes.md): base 100 if the victim falls (else 50) x speeds (0.7..1.0 each) x slide 1.0 / tackle 0.8 /
+other 0.5 x direction (up to 1.25 from behind) -> up to ~125. It accumulates for the whole match: >= 150 state 2, >= 200
+injury. Over 85 there is a 5 % (resistance 0) / 2 % (1) chance it becomes 200. No score input in the damage itself; the score
+raises slide aggression L (chasing flag T+0xa53c +1, attack level 4 +1). L also gets +1 from (GUESS) stamina < 30 late in the
+match. New knobs:
+- slidemax: 0x140972065 `b8 03 00 00 00` -> `b8 NN 00 00 00` (cap of L; with cap < 3 no slides in own box, which needs L >= 3).
+- injury: 0x140481707 / 0x14048171d movss [100.0] / [50.0] -> rip to 0x140928fb8 / 0x140928fbc (100x / 50x).
+- jackpot: 0x140481531 `0f 42 da` (cmovb ebx,200) -> nop.
+- `ai_fix.py injury`: read-only; finds Injury objects by scanning private RW memory for the vtable 0x14259ce20, validates
+  the 80 dmg/st records, prints every (team, squad index) with accumulated damage, last hit, contact kind, time, period, state.
+
+## 8. Open items
 - Meaning of ball record type 5 (GUESS: shot - the replay listener looks for the last type-5 record).
 - How often the team plan T+0xa2a0 is recomputed (a new job bypasses the interval).
 - Whether the request R replayed between thinks holds a fixed point or a "follow player" target that the anime layer

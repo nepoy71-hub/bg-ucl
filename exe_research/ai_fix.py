@@ -29,10 +29,27 @@
                  (8 = до 130 ms, 12 = до 200 ms; човек ~200-250 ms)
   Пресата (PRESS, SAND) и маркирането (MARK, COVER) не се пипат.
 
-КЛЮЧОВЕ (не са в профилите)
-    slide=fix    без засилените шпагати, когато AI губи (от slide_fix.py)
+КЛЮЧОВЕ И РЕГУЛАТОРИ ЗА ШПАГАТИТЕ И КОНТУЗИИТЕ (не са в профилите)
+    slide=fix    без засилените шпагати, когато AI губи (от slide_fix.py):
+                 махат се +1 за „гони резултата“ и +1 за атака ниво 4
+    slidemax=0..3  таван на агресията на шпагата L          Konami: 3
+                 L = 0..3: шпагат от 4 / 4.8 / 5.6 / 6.4 м, по-лесен ъгъл,
+                 повече приет риск от сблъсък; при 3 без проверката „друг
+                 противник наблизо“.  L идва от: умение, тактика, дерби (+2),
+                 инструкция, гонене на резултата, вероятно умора (под 30),
+                 атака 4.
+                 С таван под 3 AI не влиза с шпагат в своето наказателно поле.
+    injury=0..1  каква част от щетата при сблъсък се записва  Konami: 1
+                 (важи и за двата отбора)
+    jackpot=off  без лотарията: при удар над 85 щетата внезапно става 200
+                 (шанс 5 % при устойчивост 0, 2 % при 1, 0 при 2)
     sand=off     без втория защитник (PRESS + SAND), когото AI праща от
                  Professional нагоре (така 1 срещу 1 става 2 срещу 1)
+
+ЩЕТА (само чете, може и на пауза)
+    py ai_fix.py injury   натрупаната щета на всеки играч с удари в мача.
+                 Щетата се трупа до края на мача: 150 = риск, 200 = контузия.
+                 Едно сваляне дава до ~125 (шпагат отзад при висока скорост).
 
 ПРОФИЛИ за регулаторите
     light   react=4  decide=0.8  foot=0.8  angle=0.7  press=0.4
@@ -45,7 +62,8 @@
     py ai_fix.py on light                 друг профил
     py ai_fix.py on fair foot=0.9         профил и промяна на отделни регулатори
     py ai_fix.py set react=10 press=0.5   само тези (останалите не се пипат)
-    py ai_fix.py set slide=fix sand=off   ключовете
+    py ai_fix.py set slide=fix slidemax=2 jackpot=off
+    py ai_fix.py injury                   щетата в момента
     py ai_fix.py set angle=konami         един регулатор обратно на Konami
     py ai_fix.py off                      всичко както у Konami
     ... --exe ИМЕ                         друго име на процеса (PES2021.exe)
@@ -103,6 +121,13 @@ class MODULEENTRY32W(ctypes.Structure):
                 ("szExePath", ctypes.c_wchar * 260)]
 
 
+class MBI(ctypes.Structure):
+    _fields_ = [("BaseAddress", ctypes.c_void_p), ("AllocationBase", ctypes.c_void_p),
+                ("AllocationProtect", ctypes.c_uint32), ("PartitionId", ctypes.c_uint16),
+                ("RegionSize", ctypes.c_size_t), ("State", ctypes.c_uint32), ("Protect", ctypes.c_uint32),
+                ("Type", ctypes.c_uint32)]
+
+
 class Proc:
     def __init__(self, exe):
         k = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -151,6 +176,40 @@ class Proc:
 
     def addr(self, va):
         return self.base + (va - IMAGE_BASE)
+
+    def read_abs(self, a, n):
+        buf = ctypes.create_string_buffer(n)
+        got = ctypes.c_size_t()
+        if not self.k.ReadProcessMemory(self.h, ctypes.c_void_p(a), buf, n, ctypes.byref(got)):
+            return None
+        return buf.raw[:got.value]
+
+    def scan_qword(self, value):
+        """адресите (кратни на 8) в частната памет за четене и запис, където стои value"""
+        k = self.k
+        k.VirtualQueryEx.restype = ctypes.c_size_t
+        k.VirtualQueryEx.argtypes = [wt.HANDLE, ctypes.c_void_p, ctypes.POINTER(MBI), ctypes.c_size_t]
+        pat = struct.pack("<Q", value)
+        m = MBI()
+        a = 0
+        while k.VirtualQueryEx(self.h, ctypes.c_void_p(a), ctypes.byref(m), ctypes.sizeof(m)):
+            start = m.BaseAddress or 0
+            size = m.RegionSize
+            if m.State == 0x1000 and m.Type == 0x20000 and m.Protect in (0x04, 0x40):
+                off = 0
+                while off < size:
+                    n = min(size - off, 1 << 24)
+                    blob = self.read_abs(start + off, n)
+                    if blob:
+                        i = blob.find(pat)
+                        while i >= 0:
+                            if i % 8 == 0:
+                                yield start + off + i
+                            i = blob.find(pat, i + 1)
+                    off += n
+            a = start + size
+            if a >= 0x7FFFFFFFFFFF:
+                break
 
     def read(self, va, n):
         buf = ctypes.create_string_buffer(n)
@@ -305,7 +364,41 @@ SAND = Knob(
     lambda s: "off" if s == "off" else (_ for _ in ()).throw(ValueError("off или konami")),
     lambda v: "без втория защитник (Pro+)")
 
-KNOBS = [DECIDE, FOOT, ANGLE, PRESS, REACT, SLIDE, SAND]
+# slidemax: таван на агресията на шпагата L (0..3) в 0x140971ba0: mov eax,3 ; cmp ; cmova
+#   L решава от колко далеч (4 + 0.8*L м), колко лесно и колко риск от сблъсък
+#   приема шпагатът; при L=3 пропуска проверката „друг противник наблизо“.
+#   В своето наказателно поле шпагатът иска L >= 3, т.е. с таван под 3 там няма шпагати.
+SLIDEMAX = Knob(
+    "slidemax",
+    [(0x140972065, bytes.fromhex("b803000000"))],
+    lambda n: [bytes([0xB8, n, 0, 0, 0])],
+    lambda cur: cur[0][1],
+    lambda s: int(s) if 0 <= int(s) <= 3 else (_ for _ in ()).throw(ValueError("между 0 и 3")),
+    lambda n: "L до %d (шпагат от до %.1f м)" % (n, 4 + 0.8 * n))
+
+# injury: щета при сблъсък x стойност (0x140481610: база 100 при падане, 50 без)
+CAVE_INJ_FALL, CAVE_INJ_HIT = 0x140928FB8, 0x140928FBC     # int3 след таблицата на 0x140928710
+INJURY = Knob(
+    "injury",
+    [(CAVE_INJ_FALL, CC4), (CAVE_INJ_HIT, CC4),
+     (0x140481707, bytes.fromhex("f30f103d21d70b02")),       # movss xmm7,[100.0]
+     (0x14048171D, bytes.fromhex("f30f103d0fa71102"))],      # movss xmm7,[50.0]
+    lambda x: [f32(100 * x), f32(50 * x),
+               bytes.fromhex("f30f103d") + rip_disp(CAVE_INJ_FALL, 0x14048170F),
+               bytes.fromhex("f30f103d") + rip_disp(CAVE_INJ_HIT, 0x140481725)],
+    lambda cur: round(struct.unpack("<f", cur[0])[0] / 100, 3),
+    frac(0, 1), lambda v: "%d %% от щетата" % round(v * 100))
+
+# jackpot: при щета > 85 шанс 5 % (устойчивост 0) / 2 % (1) щетата да стане 200 = контузия веднага
+JACKPOT = Knob(
+    "jackpot",
+    [(0x140481531, bytes.fromhex("0f42da"))],                # cmovb ebx,200 -> nop
+    lambda v: [b"\x90\x90\x90"],
+    lambda cur: "off",
+    lambda s: "off" if s == "off" else (_ for _ in ()).throw(ValueError("off или konami")),
+    lambda v: "без внезапните 200")
+
+KNOBS = [DECIDE, FOOT, ANGLE, PRESS, REACT, SLIDE, SLIDEMAX, SAND, INJURY, JACKPOT]
 BY_NAME = {k.name: k for k in KNOBS}
 
 # старото „see“ на slide_fix.py (изключва надничането в 0x1405bebd0 изцяло)
@@ -326,7 +419,59 @@ LABEL = {
     "react": "реакция 1 срещу 1",
     "slide": "шпагати при гонене",
     "sand": "втори защитник Pro+",
+    "slidemax": "таван на шпагатите",
+    "injury": "щета при сблъсък",
+    "jackpot": "лотария „200“",
 }
+
+
+# ---------------------------------------------------------------- щета (само чете)
+INJURY_VT = 0x14259CE20
+STATE = {0: "", 2: "РИСК (>=150)", 3: "КОНТУЗИЯ (>=200)", 4: "КОНТУЗИЯ"}
+
+
+def injury_objects(p):
+    vt = p.base + (INJURY_VT - IMAGE_BASE)
+    out = []
+    for a in p.scan_qword(vt):
+        b = p.read_abs(a, 0x1A90)
+        if not b or len(b) < 0x1A90:
+            continue
+        ok = True
+        rows = []
+        for e in range(80):
+            last, acc, cause, kind, t, per = struct.unpack_from("<ffiifi", b, 8 + e * 0x18)
+            st = struct.unpack_from("<i", b, 0xDCC + e * 0x28)[0]
+            if not (0 <= acc <= 255 and 0 <= last <= 255 and 0 <= per <= 11 and st in (0, 2, 3, 4)):
+                ok = False
+                break
+            if acc > 0:
+                rows.append((e // 40, e % 40, acc, last, cause, kind, t, per, st))
+        inj = struct.unpack_from("<i", b, 0x1A4C)[0]
+        if ok and (0 <= inj <= 0x15 or inj == 0xFF):
+            out.append((a, rows))
+    return out
+
+
+def injury_report(p):
+    say("Търся обекта на контузиите в паметта (може да отнеме няколко секунди)...")
+    objs = injury_objects(p)
+    if not objs:
+        say("Не го намерих. Мачът започнал ли е?")
+        return
+    if len(objs) > 1:
+        say("Намерих %d обекта; показвам този с щета." % len(objs))
+        objs.sort(key=lambda o: len(o[1]), reverse=True)
+    a, rows = objs[0]
+    if not rows:
+        say("Никой няма натрупана щета.")
+        return
+    say("Натрупана щета (контузия на 200; 150-199 = риск). Последният удар е най-отгоре.")
+    say("  отбор  номер  щета  последен удар  вид  време/период")
+    for team, idx, acc, last, cause, kind, t, per, st in sorted(rows, key=lambda r: (r[7], r[6]), reverse=True):
+        say("  %-5s  %5d  %4.0f  %13.0f  %3d  %6.1f/%d  %s" % (
+            "дом." if team == 0 else "гост", idx, acc, last, cause, t, per, STATE.get(st, st)))
+    say("„номер“ е мястото на играча в състава (0 = първият в списъка на отбора).")
 
 
 def legacy_see(p):
@@ -404,7 +549,7 @@ def main(argv):
         del argv[i:i + 2]
     cmd = argv[0].lower() if argv else "status"
     rest = argv[1:]
-    if cmd not in ("status", "show", "on", "set", "off"):
+    if cmd not in ("status", "show", "on", "set", "off", "injury"):
         raise SystemExit(__doc__)
     want = None
     if cmd == "on":
@@ -423,6 +568,9 @@ def main(argv):
     elif cmd == "off":
         want = {k.name: "konami" for k in KNOBS}
     p = Proc(exe)
+    if cmd == "injury":
+        injury_report(p)
+        return
     if want is not None:
         apply(p, want)
         if cmd == "off":
