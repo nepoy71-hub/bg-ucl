@@ -256,7 +256,7 @@ static void read_ini(const char* path, settings_t* s)
     *eq = 0;
     char* k = trim(t);
     char* v = trim(eq + 1);
-    if (!_stricmp(sec, "defense")) {
+    if (!_stricmp(sec, "defense") || !_stricmp(sec, "profile_custom")) {   /* custom values: [profile_custom] (or [defense]) */
       if (!_stricmp(k, "def_pursuit_speed")) s->pursuit = num(v, 1, 60, 36, k);
       else if (!_stricmp(k, "profile")) { strncpy(s->profile, v, sizeof s->profile - 1); }
       else if (!_stricmp(k, "decide")) s->decide = num(v, 0, 1, 0.85, k);
