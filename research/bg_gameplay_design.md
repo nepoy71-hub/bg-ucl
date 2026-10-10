@@ -58,7 +58,7 @@ press_radius_far = 12       ; ДАЛЕЧНИЯТ радиус в обичайн�
   **отпада** (няма press_coordinator в DLL-а; гейтът 0x1406344A2 не се пипа).
 ### Проект на ini – сандвич (в [press])
 ```ini
-sandwich_distance = 1.5     ; На колко метра от теб застава вторият защитник. Konami 1.5.
+sandwich_distance = 2.0     ; На колко метра от теб застава вторият защитник. Konami 1.5. По подразбиране 2.0.
                             ; По-малко = по-плътно затваряне (и повече сблъсъци); по-голямо = по-хлабаво, оставя
                             ; повече място да излезеш. Разумно 1.0 – 3.0.
 ```
@@ -89,7 +89,7 @@ attack_finish_angle = 85    ; Кога ТОПКОНОСИТЕЛЯТ НА AI (а�
 | [defense] | def_pursuit_speed | 36 | 28 | gameplay_mix |
 | [defense] | decide, foot, angle, press (надничане), react (реакция 1 срещу 1) | профил fair: 0.85/0.85/0.8/0.6, 8 | 0.7*/0*/0.5/0.25, 1-2 | ai_fix |
 | [press] | press_radius_normal, press_radius_far | 9, 12 | 6, 10 | gameplay_mix + анализ |
-| [press] | sandwich_distance | 1.5 | 1.5 | анализ |
+| [press] | sandwich_distance | 2.0 | 1.5 | анализ |
 | [slides] | slide (без засилване при гонене), slidemax | ? | изкл., 3 | ai_fix |
 | [injury] | injury, jackpot, backfall | ? | 1, вкл., вкл. | ai_fix |
 | [ballcarrier] | attack_finish_angle | 85 | 100 | gameplay_mix |
