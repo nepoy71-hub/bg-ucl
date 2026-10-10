@@ -52,21 +52,28 @@ Data: PES2021_code.bin / PES2021_prot.bin dumps, constant_player.bin. Patch tool
 ```
 Constants read: 0x14258c264 = 3.0, 0x14259222c = 5.0, 0x14259be30 = 45, 0x14259be60 = 135, 0x14259be7c = -5.0 [code].
 
-## 3. Patch (react_fix.py)
+## 3. Pro and above: second defender (PRESS + SAND)
+0x140634470 (only caller 0x140535fe6, return value unused) starts with `0x140a604d0(level, 5)`: cpuLevel row 5 =
+0,0,0,1,1,1,1, so it runs only from Professional up [code]. It hands one player PRESS 0x34 (0x1406345ad, 0x140634a3a) and
+another SAND 0x35 (0x1406349e0) against the ball carrier: a 1 v 1 becomes 2 v 1 from Pro up. 0x140635ab0 (cpuLevel row 7,
+also Pro+) hands out PASS_COURSE_CUT 0x3d. Other Pro+ rows read in readable code: 8 (slide gate), 0xf/0x10 (0x140600f70),
+0x15 (0x142121f30), 0x1f (set play).
 
-Uses the 9 int3 bytes after the byte table (0x140928fb7..0x140928fbf):
+## 4. Patch (react_fix.py) - 1 v 1 only
+Goal: keep pressing and marking as they are, give the dribbler a human-speed opponent in the duel.
 ```
-0x140928fb7  cc cc cc           -> 03 03 02        table rows for 0x38 BLOCK, 0x39 CONTACT (unchanged target), 0x3a MATCH_UP -> #2
-0x140928fba  cc cc cc cc cc     -> 40 b6 NN eb 90  mov sil,NN ; jmp 0x140928f4f
-0x140928f7c  4c 8f 92 00        -> ba 8f 92 00     jump target #2 (used only by MARK) -> stub
-0x140928fb2  00 00 03 02 00     -> 02 02 02 02 02  DELAY, PRESS, SAND, MARK, DELAY_MARK -> #2
-0x140928ed8  32                 -> 35              range check now includes MATCH_UP
+0x140928f42  ba 1b 00 00 00 e8 74 45 53 01 -> eb 08 40 b6 NN eb 06 90 90 90
+             (dead getter call 0x141e5d4c0(.,0x1b), result unused) -> jmp f4c ; stub: mov sil,NN ; jmp f4f
+0x140928f2b  0f 82 18 ff ff ff -> 0f 82 13 00 00 00   mask hit {DELAY,PRESS,MARK,MATCH_UP} -> stub instead of "think now"
+0x140928fb2  00 -> 03                                 DELAY: jump target 0 (2 frames) -> f15 (mask -> stub)
 ```
-Result (simulated on the dump): DELAY, PRESS, SAND, MARK, DELAY_MARK, MATCH_UP think every NN frames.
-Every other action keeps Konami's interval. A new job from the team plan still starts at once. Live memory only.
-Not tested in game. Whether a code-integrity check reacts to these bytes was not checked.
+Of the four mask actions only MATCH_UP reached f15 before; with the table change DELAY does too. PRESS, DELAY_MARK
+(target 0, 2 frames) and MARK (target 2, 3 frames) never reach the mask, so they keep Konami's interval.
+Simulated on the dump for every action 5..0x4f: only DELAY and MATCH_UP change (to NN); `off` restores the bytes exactly.
+Optional `nosand`: 0x1406344a7 `e8 24 c0 42 00` -> `31 c0 90 90 90` (the Pro+ function exits at once).
+Live memory only; run it in the menus, not during a match. Not tested in game. Code-integrity reaction not checked.
 
-## 4. Open items
+## 5. Open items
 - Meaning of ball record type 5 (GUESS: shot - the replay listener looks for the last type-5 record).
 - How often the team plan T+0xa2a0 is recomputed (a new job bypasses the interval).
 - Whether the request R replayed between thinks holds a fixed point or a "follow player" target that the anime layer

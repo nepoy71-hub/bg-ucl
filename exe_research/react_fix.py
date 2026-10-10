@@ -1,27 +1,32 @@
-"""react_fix.py - време за реакция на защитниците на AI (PES 2021 PC, exe 1.01)
+"""react_fix.py - 1 срещу 1: време за реакция на защитника на AI (PES 2021 PC, exe 1.01)
 
 Пипа само паметта на пусната игра, не и PES2021.exe на диска.  След рестарт
-на играта всичко е както у Konami.
+на играта всичко е както у Konami.  Пускай го в менютата (преди мача), не
+по време на игра: сменя няколко байта код, който мачът изпълнява.
 
 Какво прави:
-  Играч на AI преосмисля какво да прави (къде да застане, кого да гони) само
-  на всеки N-ти кадър.  Логиката на играта върви с 54 кадъра в секунда.
-  У Konami защитните задачи са:
-      MATCH_UP (човекът срещу топконосителя)   всеки кадър   (18 ms)
-      DELAY, PRESS, DELAY_MARK                 на 2 кадъра   (37 ms)
-      MARK, SAND                               на 3 кадъра   (56 ms)
+  Играч на AI преосмисля къде да застане и как да застане само на всеки N-ти
+  кадър (логиката върви с 54 кадъра в секунда).  Между два такива момента
+  повтаря последното си решение.  У Konami защитникът срещу топконосителя:
+      MATCH_UP (1 срещу 1)          мисли всеки кадър    (18 ms)
+      DELAY (задържане, jockey)     на 2 кадъра          (37 ms)
   Човек реагира за около 200-250 ms (11-14 кадъра).
-  'on N' слага всички тези шест задачи на N кадъра.  Нападателните действия,
-  вратарят и отнемането/шпагатът (те се проверяват всеки кадър отделно, виж
-  slide_fix.py) не се пипат.  Важи за играчите на AI и на двата отбора.
+  'on N' слага само тези две задачи на N кадъра.  Пресата (PRESS, SAND),
+  маркирането (MARK, DELAY_MARK, COVER), нападателните действия и вратарят
+  остават както у Konami.  Отнемането и шпагатът се проверяват отделно всеки
+  кадър (за тях е slide_fix.py).  Важи за AI играчите и на двата отбора.
+
+  По избор ('nosand'): от Professional нагоре отборният AI (0x140634470,
+  cpuLevel ред 5 = 0,0,0,1,1,1,1) праща втори защитник (PRESS + SAND).
+  Това е 2 срещу 1 и е част от пресата.  Не е включено с 'on'.
 
     py react_fix.py              състояние
-    py react_fix.py on           N = 12 (до 0,20 s, средно 0,10 s)
+    py react_fix.py on           N = 12 (закъснение до 0,20 s, средно 0,10 s)
     py react_fix.py on 15        друго N (1..60)
-    py react_fix.py off          връща байтовете на Konami
+    py react_fix.py off          връща всичко както у Konami
+    py react_fix.py nosand       по избор: без втория защитник от Pro нагоре
+    py react_fix.py sand         връща втория защитник
     py react_fix.py ... --exe X  друго име на процеса (по подразбиране PES2021.exe)
-
-Пускаш го, когато играта е пусната (може и по време на мач).
 """
 import ctypes
 import ctypes.wintypes as wt
@@ -33,25 +38,29 @@ DEFAULT_N = 12
 
 # (va, байтове на Konami, байтове с поправката; None = зависи от N)
 # Редът е важен: първо се пише това, до което кодът още не стига.
-STUB = 0x140928FBA
 
 
 def stub_bytes(n):
-    # mov sil, n ; jmp 0x140928f4f   (там: кадър % n == слот % n -> мисли)
-    return bytes([0x40, 0xB6, n, 0xEB, 0x90])
+    # 0x140928f42: jmp 0x140928f4c          (досегашният път: mov sil,3)
+    # 0x140928f44: mov sil, n ; jmp 0x140928f4f   (кадър % n == слот % n -> мисли)
+    # 0x140928f49: nop x3
+    # Махнатото извикване 0x141e5d4c0(.., 0x1b) само чете константа и
+    # резултатът му не се ползва.
+    return bytes([0xEB, 0x08, 0x40, 0xB6, n, 0xEB, 0x06, 0x90, 0x90, 0x90])
 
 
 SITES = [
-    # таблицата с преходи се удължава с 3 реда: действия 0x38 BLOCK и 0x39
-    # CONTACT остават където бяха (0x140928f15), 0x3a MATCH_UP -> към STUB
-    (0x140928FB7, b"\xcc\xcc\xcc", b"\x03\x03\x02", "таблица: MATCH_UP"),
-    (STUB, b"\xcc" * 5, None, "нов интервал N"),
-    # преход №2 (ползва го само MARK) -> STUB
-    (0x140928F7C, struct.pack("<I", 0x928F4C), struct.pack("<I", 0x928FBA), "преход №2 -> N"),
-    # DELAY, PRESS, SAND, MARK, DELAY_MARK -> преход №2
-    (0x140928FB2, b"\x00\x00\x03\x02\x00", b"\x02\x02\x02\x02\x02", "таблица: DELAY..DELAY_MARK"),
-    # проверката на обхвата стига до действие 0x3a (MATCH_UP)
-    (0x140928ED8, b"\x32", b"\x35", "обхват на таблицата"),
+    (0x140928F42, bytes.fromhex("ba1b000000e874455301"), None, "интервал N (MATCH_UP, DELAY)"),
+    # битовата маска {DELAY, PRESS, MARK, MATCH_UP} -> вместо „мисли веднага“
+    # към STUB.  От тези четири досега стигаше дотук само MATCH_UP.
+    (0x140928F2B, bytes.fromhex("0f8218ffffff"), bytes.fromhex("0f8213000000"), "MATCH_UP -> N"),
+    # DELAY: таблица на преходите 0 (2 кадъра) -> 3 (през маската към STUB)
+    (0x140928FB2, b"\x00", b"\x03", "DELAY -> N"),
+]
+
+SAND_SITES = [
+    # call 0x140a604d0 (cpuLevel ред 5) -> xor eax,eax: функцията излиза веднага
+    (0x1406344A7, b"\xe8\x24\xc0\x42\x00", b"\x31\xc0\x90\x90\x90", "удвояване PRESS+SAND (Pro+)"),
 ]
 
 
@@ -147,19 +156,19 @@ class Proc:
 
 
 # ---------------------------------------------------------------- логика
-def state(p):
+def state(p, sites):
     """('off'|'on'|'mixed'|'unknown', N или None, подробности)"""
     rows = []
     n = None
-    for va, orig, new, what in SITES:
+    for va, orig, new, what in sites:
         cur = p.read(va, len(orig))
         if cur is None:
             rows.append((what, "не се чете"))
             continue
         if cur == orig:
             rows.append((what, "Konami"))
-        elif new is None and cur[:2] == b"\x40\xb6" and cur[3:] == b"\xeb\x90":
-            n = cur[2]
+        elif new is None and cur[:4] == b"\xeb\x08\x40\xb6" and cur[5:] == b"\xeb\x06\x90\x90\x90":
+            n = cur[4]
             rows.append((what, "поправка (N=%d)" % n))
         elif new is not None and cur == new:
             rows.append((what, "поправка"))
@@ -175,37 +184,34 @@ def state(p):
     return "unknown", n, rows
 
 
-def turn_on(p, n):
-    st, _, rows = state(p)
+def turn_on(p, sites, n=None):
+    st, _, rows = state(p, sites)
     if st == "unknown":
         show(rows)
         raise SystemExit("Байтовете не са каквито очаквам (друга версия на exe?). Нищо не пиша.")
-    for va, orig, new, what in SITES:
+    for va, orig, new, what in sites:
         data = stub_bytes(n) if new is None else new
         if p.read(va, len(data)) == data:
             continue
         if not p.write(va, data):
             raise SystemExit("Не успях да запиша: %s. Пусни 'off'." % what)
-    print("Включено: защитните задачи на AI мислят на всеки %d кадъра (закъснение до %.0f ms, средно %.0f ms)."
-          % (n, (n - 1) * 1000 / 54, (n - 1) * 500 / 54))
 
 
-def turn_off(p):
-    st, _, rows = state(p)
+def turn_off(p, sites):
+    st, _, rows = state(p, sites)
     if st == "unknown":
         show(rows)
         raise SystemExit("Байтовете не са каквито очаквам. Нищо не пиша.")
-    for va, orig, new, what in reversed(SITES):
+    for va, orig, new, what in reversed(sites):
         if p.read(va, len(orig)) == orig:
             continue
         if not p.write(va, orig):
             raise SystemExit("Не успях да върна: %s." % what)
-    print("Изключено: кодът е като у Konami.")
 
 
 def show(rows):
     for what, s in rows:
-        print("  %-28s %s" % (what, s))
+        print("  %-30s %s" % (what, s))
 
 
 def main(argv):
@@ -215,22 +221,37 @@ def main(argv):
         exe = argv[i + 1]
         del argv[i:i + 2]
     cmd = argv[0] if argv else "status"
+    if cmd not in ("status", "on", "off", "nosand", "sand"):
+        raise SystemExit(__doc__)
     p = Proc(exe)
     if cmd == "on":
         n = int(argv[1]) if len(argv) > 1 else DEFAULT_N
         if not 1 <= n <= 60:
             raise SystemExit("N трябва да е между 1 и 60.")
-        turn_on(p, n)
+        turn_on(p, SITES, n)
+        print("Включено: защитникът 1 срещу 1 (MATCH_UP, DELAY) мисли на всеки %d кадъра (закъснение до %.0f ms, средно %.0f ms)."
+              % (n, (n - 1) * 1000 / 54, (n - 1) * 500 / 54))
+    elif cmd == "nosand":
+        turn_on(p, SAND_SITES)
+        print("Включено: без удвояването PRESS + SAND от Pro нагоре.")
+    elif cmd == "sand":
+        turn_off(p, SAND_SITES)
+        print("Удвояването е както у Konami.")
     elif cmd == "off":
-        turn_off(p)
-    elif cmd != "status":
-        raise SystemExit(__doc__)
-    st, n, rows = state(p)
-    print({"off": "Състояние: като у Konami.",
-           "on": "Състояние: включено, N = %s." % n,
-           "mixed": "Състояние: наполовина (пусни 'on' или 'off').",
-           "unknown": "Състояние: непознати байтове."}[st])
-    show(rows)
+        turn_off(p, SITES)
+        turn_off(p, SAND_SITES)
+        print("Изключено: кодът е като у Konami.")
+    st, n, rows = state(p, SITES)
+    print({"off": "Реакция: като у Konami.",
+           "on": "Реакция: N = %s кадъра." % n,
+           "mixed": "Реакция: наполовина (пусни 'on' или 'off').",
+           "unknown": "Реакция: непознати байтове."}[st])
+    st2, _, rows2 = state(p, SAND_SITES)
+    print({"off": "Удвояване (Pro+): като у Konami.",
+           "on": "Удвояване (Pro+): изключено.",
+           "mixed": "Удвояване: ?",
+           "unknown": "Удвояване: непознати байтове."}[st2])
+    show(rows + rows2)
 
 
 if __name__ == "__main__":
