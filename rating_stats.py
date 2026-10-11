@@ -95,11 +95,16 @@ def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0):
     g = lambda s_: stats.get(s_, 0)
     e = lambda s_: stats.get(s_, 0) * k
     grp = GROUP.get(pos, 'MF')
+    if g(0) >= 4:
+        return 10.0, '4+ гола: винаги 10'
     sot = max(0, g(17) - g(0)) * k
     neg = 0.10 * (e(22) - e(23)) + 0.10 * offp * k
     wk = 0.04 * max(0, g(23) - offp) * k
     wk += 0.10 * e(27) + 0.05 * e(29) + 0.15 * e(31)
-    wk += 0.30 * e(77) + 0.20 * e(54)
+    if grp == 'DF':
+        wk += 0.22 * e(77) + 0.15 * e(54)
+    else:
+        wk += 0.30 * e(77) + 0.20 * e(54)
     if grp == 'FW':
         neg += min(0.3, 0.05 * e(89))
         wk += 0.05 * sot
@@ -129,12 +134,14 @@ def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0):
         neg += min(1.2, sum([0.4, 0.3, 0.2, 0.15, 0.15][:ga])) * share
         if ga == 0 and full:
             wk += 0.2
+    if grp == 'MF':
+        wk *= 1.06
     if grp == 'FW' and g(0) == 0:
         wk = min(wk * 2.0 - neg, 2.5)
     elif g(0) == 0 and g(4) == 0:
         wk -= neg
         if wk > 1.5:
-            wk += wk - 1.5
+            wk += (0.6 if grp == 'DF' else 1.0) * (wk - 1.5)
         wk = min(wk, 5.0)
     else:
         if grp == 'FW':

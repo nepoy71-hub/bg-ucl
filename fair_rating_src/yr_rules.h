@@ -43,6 +43,8 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
   if (mins < 5) return 0.0f;
   grp = yr_group(rec);
   goals = (int)yr_st(rec, 0);
+  /* four goals or more: always 10, whatever else happened */
+  if (goals >= 4) return 10.0f;
   ast = (int)yr_st(rec, 4);
   sot = (int)yr_st(rec, 17) - goals;
   if (sot < 0) sot = 0;
