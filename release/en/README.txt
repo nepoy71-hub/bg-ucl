@@ -23,5 +23,6 @@ Settings
 Works only with PES2021.exe version 1.01. With any other version it changes nothing.
 
 If something goes wrong
-- bg_gameplay writes to sider.log only when something is wrong. No lines with "bg_gameplay" = all is fine.
+- sider.log shows which profile is selected (at start and when you change it). Apart from that
+  bg_gameplay writes only when something is wrong. No other lines with "bg_gameplay" = all is fine.
   If there are any, send them.

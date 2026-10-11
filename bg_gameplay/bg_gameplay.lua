@@ -1,7 +1,7 @@
 -- bg_gameplay.lua  -  зарежда bg_gameplay.dll: настройки на геймплея от bg_gameplay.ini + Fair Rating (PES 2021, exe 1.01)
 -- Изисква в sider.ini: luajit.ext.enabled = 1
 -- DLL-ът и bg_gameplay.ini са в папката modules на Sider. Настройките се четат наново преди всеки мач.
--- В sider.log се пише само при проблем; ако няма редове с bg_gameplay, всичко е сложено.
+-- В sider.log се вижда избраният профил; освен него се пише само при проблем.
 
 local m = {}
 

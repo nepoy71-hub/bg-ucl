@@ -329,7 +329,15 @@ static void apply_profile(const settings_t* s)
     if (_stricmp(s->profile, "custom")) logmsg(T("bg_gameplay: profile = \"%s\" е непознат -- ползвам custom", "bg_gameplay: profile = \"%s\" is unknown -- using custom"), s->profile);
     v[0] = s->decide; v[1] = s->foot; v[2] = s->angle; v[3] = s->press; v[4] = s->react;
   }
-  info(T("bg_gameplay: профил %s", "bg_gameplay: profile %s"), p >= 0 ? PROF_NAME[p] : "custom");
+  {
+    /* the chosen profile is always shown (no values): at start and whenever it changes */
+    static char shown[16] = "";
+    const char* name = p >= 0 ? PROF_NAME[p] : "custom";
+    if (strcmp(shown, name)) {
+      logmsg(T("bg_gameplay: профил %s", "bg_gameplay: profile %s"), name);
+      strcpy(shown, name);
+    }
+  }
 
   /* decide: the threshold of 0x1405bebd0 reads our float; the two "near" peeks get the check / go */
   if (isnan(v[0])) {
