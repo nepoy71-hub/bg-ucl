@@ -39,7 +39,7 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
   static const float cap[4] = { 5.0f, 5.0f, 3.0f, 1.5f };
   int mins = (int)rec[YR_OUT] - (int)rec[YR_IN];
   int grp, full, i, goals, ast, sot, acc;
-  float wk, neg, disc, base, extra, team, r, c, miss, sotk;
+  float wk, neg, disc, base, extra, team, r, c, miss, sotk, share;
   if (mins < 5) return 0.0f;
   grp = yr_group(rec);
   goals = (int)yr_st(rec, 0);
@@ -74,19 +74,21 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
   miss = (float)((int)unq[1] - goals) * k;
   if (goals == 0 && miss >= 3.0f) neg += 0.3f * (miss - 2.0f);
   full = mins >= 60;
+  /* part of the 90 minutes played: goals conceded weigh by it, a substitute gets credit for the rest */
+  share = (float)(mins < 90 ? mins : 90) / 90.0f;
   if (grp == 0) {
     wk += 0.4f * k * yr_st(rec, 133);
     wk -= 0.15f * k * yr_st(rec, 77);
     if (full) wk += 0.3f;
     c = 0.0f;
     for (i = 0; i < ga && i < 5; i++) c += conc_gk[i];
-    neg += yr_minf(1.5f, c);
+    neg += yr_minf(1.5f, c) * share;
     if (ga == 0 && full) wk += 0.5f;
   }
   if (grp == 1) {
     c = 0.0f;
     for (i = 0; i < ga && i < 5; i++) c += conc_df[i];
-    neg += yr_minf(1.2f, c);
+    neg += yr_minf(1.2f, c) * share;
     if (ga == 0 && full) wk += 0.2f;
   }
   if (grp == 2) wk *= 1.06f;
@@ -116,6 +118,7 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
   if (goals > 0 && gf > ga && gf - goals <= ga) extra = 0.2f;
   team = yr_minf(0.1f, 0.05f * gf) + (gf > ga ? 0.05f : 0.0f);
   r = 5.0f + wk + disc + base + extra + team;
+  r += (1.0f - share) * 1.1f;
   neg -= disc;
   neg -= 0.3f;
   if (neg < 0.0f) neg = 0.0f;
