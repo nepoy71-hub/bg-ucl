@@ -53,7 +53,8 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
   neg += 0.10f * k * (float)offp;
   wk = 0.04f * k * (float)acc;
   wk += k * (0.10f * yr_st(rec, 27) + 0.05f * yr_st(rec, 29) + 0.15f * yr_st(rec, 31));
-  wk += k * (0.30f * yr_st(rec, 77) + 0.20f * yr_st(rec, 54));
+  if (grp == 1) wk += k * (0.22f * yr_st(rec, 77) + 0.15f * yr_st(rec, 54));
+  else wk += k * (0.30f * yr_st(rec, 77) + 0.20f * yr_st(rec, 54));
   if (grp == 3) {
     neg += yr_minf(0.3f, 0.05f * k * yr_st(rec, 89));
     wk += 0.05f * sotk;
@@ -86,13 +87,14 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
     neg += yr_minf(1.2f, c);
     if (ga == 0 && full) wk += 0.2f;
   }
+  if (grp == 2) wk *= 1.06f;
   if (grp == 3 && goals == 0) {
     wk *= 2.0f;
     wk -= neg;
     if (wk > 2.5f) wk = 2.5f;
   } else if (goals == 0 && ast == 0) {
     wk -= neg;
-    if (wk > 1.5f) wk += wk - 1.5f;
+    if (wk > 1.5f) wk += (grp == 1 ? 0.6f : 1.0f) * (wk - 1.5f);
     if (wk > 5.0f) wk = 5.0f;
   } else {
     if (grp == 3) wk *= 2.0f;
