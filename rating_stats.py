@@ -97,7 +97,7 @@ def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0):
 
     x = работа над обичайната за линията (по минути) + голове + асистенции + резултат
         - допуснати (вратар/защитник) - картони, автоголове, пропуснати удари отблизо
-    оценка = 6.3 + 3.7*tanh(x/4.7) при x >= 0; 6.3 - 3.3*tanh(-x/3) при x < 0; 4+ гола = 10.
+    оценка = 6.3 + 3.7*tanh(x/4.7) при x >= 0; 6.3 - 3.3*tanh(-x/3) при x < 0; 4+ гола или 3 гола + асистенция = 10.
     """
     mins = t_out - t_in
     if mins < 5:
@@ -106,8 +106,8 @@ def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0):
     e = lambda s_: stats.get(s_, 0) * k
     grp = GROUP.get(pos, 'MF')
     goals, ast = g(0), g(4)
-    if goals >= 4:
-        return 10.0, '4+ гола = 10'
+    if goals >= 4 or (goals == 3 and ast >= 1):
+        return 10.0, '4+ гола или 3 гола + асистенция = 10'
     share = min(90, mins) / 90.0
     wk = 0.04 * max(0, g(23) - offp) * k
     wk += 0.10 * e(27) + 0.05 * e(29) + 0.15 * e(31)

@@ -39,7 +39,7 @@ static int yr_group(const uint8_t* rec)
  *       - goals conceded (GK / DF) - cards, own goals, missed close-range chances
  *   rating = 6.3 + 3.7 * tanh(x / 4.7)   for x >= 0   (never reaches 10)
  *          = 6.3 - 3.3 * tanh(-x / 3.0)  for x < 0    (never below 3)
- *   4 or more goals = 10.
+ *   4 or more goals, or 3 goals + an assist = 10.
  * Every plus and every minus moves the rating the same way at any level: no ceiling
  * minus mistakes, so more goals or more work always count. "Work" = the per-action prices
  * below; the usual work of each line (median of full matches without a goal or assist in
@@ -59,7 +59,7 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
   grp = yr_group(rec);
   goals = (int)yr_st(rec, 0);
   ast = (int)yr_st(rec, 4);
-  if (goals >= 4) return 10.0f;
+  if (goals >= 4 || (goals == 3 && ast >= 1)) return 10.0f;   /* 4 goals, or 3 goals + an assist */
   share = (float)(mins < 90 ? mins : 90) / 90.0f;
   acc = (int)yr_st(rec, 23) - offp;
   if (acc < 0) acc = 0;
