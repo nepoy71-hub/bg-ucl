@@ -31,16 +31,44 @@ static int yr_group(const uint8_t* rec)
   return pos < 0 ? 2 : grp[pos];
 }
 
-/* returns the rating, or 0 when the player has under 5 minutes */
-static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, float k, int offp)
+/* goals against the team while the player was on the pitch. The game keeps goals in 15-minute
+   intervals (0-15 ... 75-90, then 90-105, 105-120); a partly played interval counts in part. */
+static float yr_conceded_on(const uint32_t* concb, int t_in, int t_out)
 {
+  float n = 0.0f;
+  int b;
+  for (b = 0; b < 8; b++) {
+    int lo = b * 15, hi = lo + 15;
+    int a = t_in > lo ? t_in : lo, z = t_out < hi ? t_out : hi;
+    if (concb[b] && z > a) n += (float)concb[b] * (float)(z - a) / 15.0f;
+  }
+  return n;
+}
+
+/* 1st, 2nd ... goal conceded cost steps[0], steps[1] ...; part of a goal = part of its cost */
+static float yr_conc_pen(const float* steps, float cap, float n)
+{
+  float tot = 0.0f;
+  int i;
+  for (i = 0; i < 5 && n > (float)i; i++) tot += steps[i] * (n - i < 1.0f ? n - i : 1.0f);
+  return yr_minf(cap, tot);
+}
+
+/* returns the rating, or 0 when the player has under 5 minutes.
+   concb = goals against his team per 15-minute interval (NULL: by share of minutes) */
+static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, float k, int offp, const uint32_t* concb)
+{
+  /* substitute: credit for the minutes not played = the usual work of his line over a full match */
+  static const float sub_credit[4] = { 0.6f, 0.6f, 1.0f, 1.0f };
   static const float conc_gk[5] = { 0.5f, 0.4f, 0.3f, 0.2f, 0.1f };
   static const float conc_df[5] = { 0.4f, 0.3f, 0.2f, 0.15f, 0.15f };
   static const float cap[4] = { 5.0f, 5.0f, 3.0f, 1.5f };
   int mins = (int)rec[YR_OUT] - (int)rec[YR_IN];
   int grp, full, i, goals, ast, sot, acc;
-  float wk, neg, disc, base, extra, team, r, c, miss, sotk;
+  float wk, neg, disc, base, extra, team, r, miss, sotk, share, ga_on;
   if (mins < 5) return 0.0f;
+  share = (float)(mins < 90 ? mins : 90) / 90.0f;
+  ga_on = concb ? yr_conceded_on(concb, rec[YR_IN], rec[YR_OUT]) : (float)ga * share;
   grp = yr_group(rec);
   goals = (int)yr_st(rec, 0);
   ast = (int)yr_st(rec, 4);
@@ -75,16 +103,12 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
     wk += 0.4f * k * yr_st(rec, 133);
     wk -= 0.15f * k * yr_st(rec, 77);
     if (full) wk += 0.3f;
-    c = 0.0f;
-    for (i = 0; i < ga && i < 5; i++) c += conc_gk[i];
-    neg += yr_minf(1.5f, c);
-    if (ga == 0 && full) wk += 0.5f;
+    neg += yr_conc_pen(conc_gk, 1.5f, ga_on);
+    if (ga_on == 0.0f && full) wk += 0.5f;
   }
   if (grp == 1) {
-    c = 0.0f;
-    for (i = 0; i < ga && i < 5; i++) c += conc_df[i];
-    neg += yr_minf(1.2f, c);
-    if (ga == 0 && full) wk += 0.2f;
+    neg += yr_conc_pen(conc_df, 1.2f, ga_on);
+    if (ga_on == 0.0f && full) wk += 0.2f;
   }
   if (grp == 3 && goals == 0) {
     wk *= 2.0f;
@@ -112,6 +136,7 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
   if (goals > 0 && gf > ga && gf - goals <= ga) extra = 0.2f;
   team = yr_minf(0.1f, 0.05f * gf) + (gf > ga ? 0.05f : 0.0f);
   r = 5.0f + wk + disc + base + extra + team;
+  r += (1.0f - share) * sub_credit[grp];
   neg -= disc;
   neg -= 0.3f;
   if (neg < 0.0f) neg = 0.0f;

@@ -113,6 +113,7 @@ static void save_match(const uint8_t* root)
 static void yr_hook(uint8_t* rec, uint32_t team, uint8_t* root, uint32_t idx, uint8_t* self)
 {
   int sc[2];
+  uint32_t concb[8];
   float r;
   const uint32_t* unq;
   g_calls++;
@@ -136,8 +137,20 @@ static void yr_hook(uint8_t* rec, uint32_t team, uint8_t* root, uint32_t idx, ui
     g_last_tick = now;
   }
   yr_score(root, sc);
+  {
+    /* goals against this player's team per 15-minute interval: the other team's goals + own goals */
+    int t, j, b;
+    for (b = 0; b < 8; b++) concb[b] = 0;
+    for (t = 0; t < 2; t++)
+      for (j = 0; j < 40; j++) {
+        const uint8_t* q = root + (uint64_t)t * YR_TEAM_SIZE + YR_REC_OFF + (uint64_t)j * YR_REC_SIZE;
+        const uint32_t* gb = (const uint32_t*)(q + 8 + (t == (int)team ? 1 : 0) * 0x24);
+        if (q[YR_IN] == 0xFF) continue;
+        for (b = 0; b < 8; b++) concb[b] += gb[b];
+      }
+  }
   unq = (const uint32_t*)(root - YR_ROOT_OFF + YR_UNQ_OFF + (uint64_t)(team * 40 + idx) * 16);
-  r = yr_rate(rec, unq, sc[team], sc[1 - team], yr_volume(root), g_offp[team * 40 + idx]);
+  r = yr_rate(rec, unq, sc[team], sc[1 - team], yr_volume(root), g_offp[team * 40 + idx], concb);
   *(float*)(rec + YR_RATING) = r;
   if (self) *(float*)(self + 0x1C4 + (uint64_t)(team * 40 + idx) * 16) = r;
 #ifndef FR_RELEASE

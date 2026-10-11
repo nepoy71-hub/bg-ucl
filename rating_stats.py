@@ -79,7 +79,33 @@ WORK_CAP = {'GK': 5.0, 'DF': 5.0, 'MF': 3.0, 'FW': 1.5}
 
 REF_VOLUME = 500.0
 FORGIVE = 0.3
-SUB_CREDIT = 1.1
+# смяна: бонус за неизиграните минути = (1 - минути/90) x обичайната работа на линията за цял мач
+SUB_CREDIT = {'GK': 0.6, 'DF': 0.6, 'MF': 1.0, 'FW': 1.0}
+# граници на 15-минутните интервали, в които играта пази головете (6 за редовното време + 2 за продълженията)
+BUCKETS = [(0, 15), (15, 30), (30, 45), (45, 60), (60, 75), (75, 90), (90, 105), (105, 120)]
+
+
+def buckets(hexrec, s_):
+    return struct.unpack_from('<8I', bytes.fromhex(hexrec), 8 + s_ * 0x24)
+
+
+def conceded_on_pitch(conc_b, t_in, t_out):
+    # головете срещу отбора, докато играчът е на терена (частичен интервал = част от гола)
+    n = 0.0
+    for (lo, hi), c in zip(BUCKETS, conc_b):
+        if c:
+            n += c * max(0, min(t_out, hi) - max(t_in, lo)) / 15.0
+    return n
+
+
+def conc_pen(steps, cap, n):
+    # 1-ви, 2-ри ... допуснат гол струват steps[0], steps[1] ...; част от гол = част от цената
+    tot = 0.0
+    for i, v in enumerate(steps):
+        if n <= i:
+            break
+        tot += v * min(1.0, n - i)
+    return min(cap, tot)
 
 
 def volume_k(rows):
@@ -89,7 +115,7 @@ def volume_k(rows):
     return max(0.3, min(3.0, REF_VOLUME / tot))
 
 
-def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0):
+def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0, conc_b=None):
     if t_out - t_in < 5:
         return None, ''
     g = lambda s_: stats.get(s_, 0)
@@ -117,17 +143,19 @@ def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0):
         neg += 0.3 * (miss - 2)
     full = t_out - t_in >= 60
     share = min(90, t_out - t_in) / 90.0
+    # допуснати само докато е на терена (по 15-минутните интервали); без интервали - по дял от минутите
+    ga_on = conceded_on_pitch(conc_b, t_in, t_out) if conc_b else ga * share
     if grp == 'GK':
         wk += 0.4 * e(133)
         wk -= 0.15 * e(77)
         if full:
             wk += 0.3
-        neg += min(1.5, sum([0.5, 0.4, 0.3, 0.2, 0.1][:ga])) * share
-        if ga == 0 and full:
+        neg += conc_pen([0.5, 0.4, 0.3, 0.2, 0.1], 1.5, ga_on)
+        if ga_on == 0 and full:
             wk += 0.5
     if grp == 'DF':
-        neg += min(1.2, sum([0.4, 0.3, 0.2, 0.15, 0.15][:ga])) * share
-        if ga == 0 and full:
+        neg += conc_pen([0.4, 0.3, 0.2, 0.15, 0.15], 1.2, ga_on)
+        if ga_on == 0 and full:
             wk += 0.2
     if grp == 'FW' and g(0) == 0:
         wk = min(wk * 2.0 - neg, 2.5)
@@ -162,7 +190,7 @@ def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0):
         extra = 0.2
     team = min(0.1, 0.05 * gf) + (0.05 if gf > ga else 0.0)
     r = 5.0 + wk + disc + base + extra + team
-    r += (1.0 - share) * SUB_CREDIT
+    r += (1.0 - share) * SUB_CREDIT[grp]
     neg -= disc
     lim = 10.0 - max(0.0, neg - FORGIVE)
     if grp == 'FW' and goals > 0:
@@ -478,12 +506,19 @@ def rate(rows):
         score[r_['team']] += r_['stats'].get(0, 0)
         score[1 - r_['team']] += r_['stats'].get(1, 0)
     k = volume_k(rows)
+    conc = [[0] * 8, [0] * 8]
+    for r_ in rows:
+        t = r_['team']
+        for i, c in enumerate(buckets(r_['hex'], 0)):
+            conc[1 - t][i] += c
+        for i, c in enumerate(buckets(r_['hex'], 1)):
+            conc[t][i] += c
     for r_ in rows:
         t = r_['team']
         r_['ours'], r_['why'] = our_rating(r_['role'], r_['in'], r_['out'],
                                            r_['stats'], r_['unq'], score[t],
                                            score[1 - t], k,
-                                           r_.get('offp', 0))
+                                           r_.get('offp', 0), conc[t])
     score.append(k)
     return score
 
@@ -877,7 +912,7 @@ def cmd_restore():
 
 def main():
     a = sys.argv[1:]
-    say('rating_stats 3.9')
+    say('rating_stats 4.0')
     try:
         if a == ['dump']:
             cmd_dump()
