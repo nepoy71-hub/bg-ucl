@@ -27,6 +27,14 @@
 #include <stdlib.h>
 #include <math.h>
 
+/* -DLANG_EN = English texts (log + default ini); -DBG_RELEASE = public build without the
+   development extras (collision log, saved matches, external-read exports) */
+#ifdef LANG_EN
+#define T(bg, en) en
+#else
+#define T(bg, en) bg
+#endif
+
 #define IMAGE_BASE 0x140000000ULL
 static uint64_t g_base = 0;
 #define VA(x) ((unsigned char*)(uintptr_t)(g_base + ((uint64_t)(x) - IMAGE_BASE)))
@@ -221,10 +229,10 @@ static double num(const char* v, double lo, double hi, double def, const char* k
   strncpy(buf, v, sizeof buf - 1); buf[sizeof buf - 1] = 0;
   for (char* c = buf; *c; c++) if (*c == ',') *c = '.';
   double x = strtod(buf, &end);
-  if (end == buf) { logmsg("bg_gameplay: %s = \"%s\" не е число -- ползвам %g", key, v, def); return def; }
+  if (end == buf) { logmsg(T("bg_gameplay: %s = \"%s\" не е число -- ползвам %g", "bg_gameplay: %s = \"%s\" is not a number -- using %g"), key, v, def); return def; }
   if (x < lo || x > hi) {
     double c = x < lo ? lo : hi;
-    logmsg("bg_gameplay: %s = %g е извън %g..%g -- ползвам %g", key, x, lo, hi, c);
+    logmsg(T("bg_gameplay: %s = %g е извън %g..%g -- ползвам %g", "bg_gameplay: %s = %g is outside %g..%g -- using %g"), key, x, lo, hi, c);
     return c;
   }
   return x;
@@ -238,7 +246,7 @@ static void read_ini(const char* path, settings_t* s)
   FILE* f = fopen(path, "rb");
   if (!f) {
     f = fopen(path, "wb");
-    if (f) { fwrite(DEFAULT_INI, 1, strlen(DEFAULT_INI), f); fclose(f); logmsg("bg_gameplay: създадох %s с настройките по подразбиране", path); }
+    if (f) { fwrite(DEFAULT_INI, 1, strlen(DEFAULT_INI), f); fclose(f); logmsg(T("bg_gameplay: създадох %s с настройките по подразбиране", "bg_gameplay: created %s with the default settings"), path); }
     return;
   }
   char line[512], sec[32] = "";
@@ -286,17 +294,20 @@ static void read_ini(const char* path, settings_t* s)
       if (!_stricmp(k, "injury_single_hit")) s->single = num(v, 1, 255, 110, k);
     } else if (!_stricmp(sec, "ballcarrier")) {
       if (!_stricmp(k, "attack_finish_angle")) s->finish = num(v, 1, 180, 85, k);
-    } else if (!_stricmp(sec, "debug")) {
+    }
+#ifndef BG_RELEASE
+    else if (!_stricmp(sec, "debug")) {
       if (!_stricmp(k, "collision_log")) s->collision_log = atoi(v) != 0;
       else if (!_stricmp(k, "rating_snaps")) { strncpy(s->snaps, v, MAX_PATH - 2); s->snaps[MAX_PATH - 2] = 0; }
     }
+#endif
   }
   fclose(f);
 }
 
 /* ------------------------------------------------------------------ the knobs */
 static int g_bad = 0;
-static void fail(int i) { g_bad++; logmsg("bg_gameplay: %s -- непознати байтове на 0x%llx, не пипам", SITE_NAME[i], (unsigned long long)g_site[i].va); }
+static void fail(int i) { g_bad++; logmsg(T("bg_gameplay: %s -- непознати байтове на 0x%llx, не пипам", "bg_gameplay: %s -- unknown bytes at 0x%llx, left alone"), SITE_NAME[i], (unsigned long long)g_site[i].va); }
 
 static void set_float_knob(int i, int slot, double v, const char* key, const char* unit)
 {
@@ -312,10 +323,10 @@ static void apply_profile(const settings_t* s)
   for (int k = 0; k < 3; k++) if (!_stricmp(s->profile, PROF_NAME[k])) p = k;
   if (p >= 0) memcpy(v, s->prof[p], sizeof v);
   else {
-    if (_stricmp(s->profile, "custom")) logmsg("bg_gameplay: profile = \"%s\" е непознат -- ползвам custom", s->profile);
+    if (_stricmp(s->profile, "custom")) logmsg(T("bg_gameplay: profile = \"%s\" е непознат -- ползвам custom", "bg_gameplay: profile = \"%s\" is unknown -- using custom"), s->profile);
     v[0] = s->decide; v[1] = s->foot; v[2] = s->angle; v[3] = s->press; v[4] = s->react;
   }
-  logmsg("bg_gameplay: профил %s", p >= 0 ? PROF_NAME[p] : "custom");
+  logmsg(T("bg_gameplay: профил %s", "bg_gameplay: profile %s"), p >= 0 ? PROF_NAME[p] : "custom");
 
   /* decide: the threshold of 0x1405bebd0 reads our float; the two "near" peeks get the check / go */
   if (isnan(v[0])) {
@@ -359,7 +370,7 @@ static void apply_profile(const settings_t* s)
     unsigned char stub[10] = { 0xeb,0x08, 0x40,0xb6,(unsigned char)n, 0xeb,0x06, 0x90,0x90,0x90 };
     static const unsigned char JB[6] = { 0x0f,0x82,0x13,0x00,0x00,0x00 }, T3[1] = { 0x03 };
     int ok = put(P_REACT1, stub) && put(P_REACT2, JB) && put(P_REACT3, T3);
-    if (!ok) fail(P_REACT1); else logmsg("bg_gameplay: react = %d кадъра", n);
+    if (!ok) fail(P_REACT1); else logmsg(T("bg_gameplay: react = %d кадъра", "bg_gameplay: react = %d frames"), n);
   }
 }
 
@@ -398,18 +409,18 @@ static void apply_referee(void)
   unsigned char* out = find_in_image(SIG_OUT, 10);
   unsigned char* xr = find_in_image(SIG_XR, 6);
   if (!t3 || !out || !xr) {
-    logmsg("bg_gameplay: съдия -- местата не са намерени (t3 %d, out %d, xr %d), ще опитам пак преди следващия мач",
+    logmsg(T("bg_gameplay: съдия -- местата не са намерени (t3 %d, out %d, xr %d), ще опитам пак преди следващия мач", "bg_gameplay: referee -- places not found (t3 %d, out %d, xr %d), will try again before the next match"),
          t3 != NULL, out != NULL, xr != NULL);
     return;
   }
   unsigned char b1 = T3, b2[2] = { T1_OUT, T2 }, b6[6] = { 0x66,0x41,0xBF, T1_IN, T2, 0x90 };
   if (write_code(t3 + 3, &b1, 1) && write_code(out + 3, b2, 2) && write_code(xr, b6, 6)) {
-    g_ref_done = 1;
-    logmsg("bg_gameplay: съдия -- прагове фал извън полето %d, в полето %d, жълт %d, червен %d", T1_OUT, T1_IN, T2, T3);
-  } else logmsg("bg_gameplay: съдия -- запис неуспешен");
+    g_ref_done = 1;   /* nothing in the log when it worked */
+  } else logmsg(T("bg_gameplay: съдия -- запис неуспешен", "bg_gameplay: referee -- write failed"));
 }
 
-/* ------------------------------------------------------------------ collision log */
+#ifndef BG_RELEASE
+/* ------------------------------------------------------------------ collision log (development build only) */
 static int g_clog = 0, g_hooks = 0;
 static char g_clog_path[MAX_PATH];
 static struct { int victim, attacker, raw, act_v, act_a; float spd_v, spd_a; } g_hit;
@@ -529,21 +540,26 @@ static int install_hooks(void)
   return 1;
 }
 
+#endif /* BG_RELEASE */
+
 /* ------------------------------------------------------------------ Fair Rating (fair_rating.c) */
 int yr_install(uint64_t exe_base);
 void yr_set_dir(const char* dir);
 void yr_set_teams(uint32_t home, uint32_t away);
 extern uint32_t yr_parts;
 
+#define YES T("да", "yes")
+#define NO  T("НЕ", "NO")
 static void fair_rating_install(void)
 {
   int r = yr_install(g_base);
-  if (r == 1) { logmsg("bg_gameplay: Fair Rating -- непознати байтове на 0x140a201f3, не пипам"); return; }
-  if (r == 2 || r == 3) { logmsg("bg_gameplay: Fair Rating -- не се сложи (код %d)", r); return; }
-  logmsg("bg_gameplay: Fair Rating -- оценки %s, засада на подаващия %s, преки удари на компютъра %s",
-         yr_parts & 1 ? "да" : "НЕ", yr_parts & 2 ? "да" : "НЕ", yr_parts & 4 ? "да" : "НЕ");
+  if (r == 1) { logmsg(T("bg_gameplay: Fair Rating -- непознати байтове на 0x140a201f3, не пипам", "bg_gameplay: Fair Rating -- unknown bytes at 0x140a201f3, left alone")); return; }
+  if (r == 2 || r == 3) { logmsg(T("bg_gameplay: Fair Rating -- не се сложи (код %d)", "bg_gameplay: Fair Rating -- not installed (code %d)"), r); return; }
+  logmsg(T("bg_gameplay: Fair Rating -- оценки %s, засада на подаващия %s, преки удари на компютъра %s", "bg_gameplay: Fair Rating -- ratings %s, offside charged to the passer %s, COM direct free kicks %s"),
+         yr_parts & 1 ? YES : NO, yr_parts & 2 ? YES : NO, yr_parts & 4 ? YES : NO);
 }
 
+#ifndef BG_RELEASE
 static void fair_rating_dir(const char* d)
 {
   char dir[MAX_PATH];
@@ -555,6 +571,7 @@ static void fair_rating_dir(const char* d)
   yr_set_dir(dir);
   logmsg("bg_gameplay: rating_snaps -> %s", dir);
 }
+#endif
 
 /* ------------------------------------------------------------------ apply */
 static char g_ini[MAX_PATH];
@@ -567,15 +584,15 @@ static void apply_all(void)
 
   set_float_knob(P_PURSUIT, D_PURSUIT, s.pursuit, "def_pursuit_speed", "");
   apply_profile(&s);
-  set_float_knob(P_RNORM, D_RNORM, s.rnorm, "press_radius_normal", " м");
-  set_float_knob(P_RFAR, D_RFAR, s.rfar, "press_radius_far", " м");
+  set_float_knob(P_RNORM, D_RNORM, s.rnorm, "press_radius_normal", T(" м", " m"));
+  set_float_knob(P_RFAR, D_RFAR, s.rfar, "press_radius_far", T(" м", " m"));
   if (isnan(s.sandw)) {
     int ok = put(P_SAND1, NULL) & put(P_SAND2, NULL);
     if (!ok) fail(P_SAND1); else logmsg("bg_gameplay: sandwich_distance = konami");
   } else {
     *DATA(D_SANDW) = (float)s.sandw;
     if (!put_rip_same(P_SAND1, D_SANDW) || !put_rip_same(P_SAND2, D_SANDW)) fail(P_SAND1);
-    else logmsg("bg_gameplay: sandwich_distance = %g м", s.sandw);
+    else logmsg(T("bg_gameplay: sandwich_distance = %g м", "bg_gameplay: sandwich_distance = %g m"), s.sandw);
   }
   {
     static const unsigned char F1[3] = { 0x89, 0xdf, 0x90 }, F2[3] = { 0x89, 0xfb, 0x90 };
@@ -591,12 +608,14 @@ static void apply_all(void)
   set_float_knob(P_FINISH, D_FINISH, s.finish, "attack_finish_angle", "°");
   apply_referee();
 
+#ifndef BG_RELEASE
   g_clog = s.collision_log;
   if (g_clog) {
     if (install_hooks()) logmsg("bg_gameplay: collision_log = 1 -> %s", g_clog_path);
   } else logmsg("bg_gameplay: collision_log = 0");
   fair_rating_dir(s.snaps);
-  if (g_bad) logmsg("bg_gameplay: %d настройки НЕ са сложени (виж по-горе)", g_bad);
+#endif
+  if (g_bad) logmsg(T("bg_gameplay: %d настройки НЕ са сложени (виж по-горе)", "bg_gameplay: %d settings were NOT applied (see above)"), g_bad);
 }
 
 /* ------------------------------------------------------------------ exports */
@@ -605,22 +624,24 @@ __declspec(dllexport) int bg_gameplay_install(uint64_t exe_base, const char* ini
   g_base = exe_base;
   static const unsigned char VER[5] = { 0xe9, 0x8b, 0xae, 0x9b, 0x03 };
   if (memcmp(VA(0x1405B6800), VER, 5) != 0) {
-    logmsg("bg_gameplay: това не е PES2021.exe 1.01 -- нищо не пипам");
+    logmsg(T("bg_gameplay: това не е PES2021.exe 1.01 -- нищо не пипам", "bg_gameplay: this is not PES2021.exe 1.01 -- nothing changed"));
     return 1;
   }
   strncpy(g_ini, ini_path, MAX_PATH - 1);
+#ifndef BG_RELEASE
   strncpy(g_clog_path, ini_path, MAX_PATH - 1);
   char* dot = strrchr(g_clog_path, '.');
   if (dot && (size_t)(dot - g_clog_path) + 16 < MAX_PATH) strcpy(dot, "_collisions.log");
+#endif
   if (!g_blk) {
     IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)(uintptr_t)g_base;
     IMAGE_NT_HEADERS64* nt = (IMAGE_NT_HEADERS64*)((unsigned char*)dos + dos->e_lfanew);
     g_blk = alloc_near(g_base + nt->OptionalHeader.SizeOfImage, 0x1000);
-    if (!g_blk) { logmsg("bg_gameplay: VirtualAlloc неуспешен -- нищо не пипам"); return 2; }
+    if (!g_blk) { logmsg(T("bg_gameplay: VirtualAlloc неуспешен -- нищо не пипам", "bg_gameplay: VirtualAlloc failed -- nothing changed")); return 2; }
     int64_t far1 = (int64_t)(uintptr_t)g_blk - (int64_t)(uintptr_t)VA(0x140481707);
     int64_t far2 = (int64_t)(uintptr_t)g_blk - (int64_t)(uintptr_t)VA(0x142119899);
     if (far1 > 0x7fff0000LL || far1 < -0x7fff0000LL || far2 > 0x7fff0000LL || far2 < -0x7fff0000LL) {
-      logmsg("bg_gameplay: блокът е твърде далеч от кода -- нищо не пипам"); return 3;
+      logmsg(T("bg_gameplay: блокът е твърде далеч от кода -- нищо не пипам", "bg_gameplay: memory block too far from the code -- nothing changed")); return 3;
     }
   }
   fair_rating_install();
@@ -633,7 +654,7 @@ __declspec(dllexport) void bg_gameplay_reload(uint32_t home, uint32_t away)
 {
   if (!g_blk) return;
   yr_set_teams(home, away);
-  logmsg("bg_gameplay: чета %s наново", g_ini);
+  logmsg(T("bg_gameplay: чета %s наново", "bg_gameplay: reading %s again"), g_ini);
   apply_all();
 }
 

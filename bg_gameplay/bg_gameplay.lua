@@ -5,6 +5,10 @@
 
 local m = {}
 
+local EN = false   -- true = English texts
+
+local function T(bg, en) if EN then return en end return bg end
+
 local dll_log, dll_reload, logbuf
 
 local function drain()
@@ -26,7 +30,7 @@ function m.key_down(ctx, vkey)
 end
 
 function m.init(ctx)
-    if ffi == nil then log("bg_gameplay: няма ffi -- сложи luajit.ext.enabled = 1 в sider.ini"); return end
+    if ffi == nil then log(T("bg_gameplay: няма ffi -- сложи luajit.ext.enabled = 1 в sider.ini", "bg_gameplay: no ffi -- set luajit.ext.enabled = 1 in sider.ini")); return end
     ffi.cdef([[
         void* LoadLibraryA(const char*);
         void* GetProcAddress(void*, const char*);
@@ -40,13 +44,13 @@ function m.init(ctx)
     local dir = ctx.sider_dir:gsub("[/" .. sep .. "]+$", "") .. sep .. "modules" .. sep
     local h = ffi.C.LoadLibraryA(dir .. "bg_gameplay.dll")
     if h == nil then
-        log(string.format("bg_gameplay: не се зареди %sbg_gameplay.dll (грешка %d)", dir, tonumber(ffi.C.GetLastError())))
+        log(string.format(T("bg_gameplay: не се зареди %sbg_gameplay.dll (грешка %d)", "bg_gameplay: could not load %sbg_gameplay.dll (error %d)"), dir, tonumber(ffi.C.GetLastError())))
         return
     end
     local pi = ffi.C.GetProcAddress(h, "bg_gameplay_install")
     local pr = ffi.C.GetProcAddress(h, "bg_gameplay_reload")
     local pl = ffi.C.GetProcAddress(h, "bg_gameplay_log")
-    if pi == nil or pr == nil or pl == nil then log("bg_gameplay: DLL-ът няма нужните функции"); return end
+    if pi == nil or pr == nil or pl == nil then log(T("bg_gameplay: DLL-ът няма нужните функции", "bg_gameplay: the DLL lacks the needed functions")); return end
     dll_log = ffi.cast("bg_gameplay_log_t", pl)
     logbuf = ffi.new("char[4096]")
 
@@ -54,13 +58,13 @@ function m.init(ctx)
     local status = tonumber(ffi.cast("bg_gameplay_install_t", pi)(base, dir .. "bg_gameplay.ini"))
     drain()
     if status ~= 0 then
-        log("bg_gameplay: НЕ е инсталиран (код " .. status .. ") -- играта е непроменена")
+        log(string.format(T("bg_gameplay: НЕ е инсталиран (код %d) -- играта е непроменена", "bg_gameplay: NOT installed (code %d) -- the game is unchanged"), status))
         return
     end
     dll_reload = ffi.cast("bg_gameplay_reload_t", pr)
     ctx.register("set_teams", m.set_teams)
     ctx.register("key_down", m.key_down)
-    log("bg_gameplay: готов (F9 = отчет в sider.log)")
+    log(T("bg_gameplay: готов (F9 = отчет в sider.log)", "bg_gameplay: ready (F9 = report in sider.log)"))
 end
 
 return m

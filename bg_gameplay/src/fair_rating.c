@@ -27,6 +27,13 @@
 #include <string.h>
 typedef struct { uint16_t y, mo, dow, d, h, mi, s, ms; } YR_TIME;   /* same layout as SYSTEMTIME */
 #define INVALID_HANDLE INVALID_HANDLE_VALUE
+/* public build: no saved matches, no player-3650 trace, no exports for outside tools */
+#ifdef BG_RELEASE
+#define FR_RELEASE
+#define FR_EXPORT
+#else
+#define FR_EXPORT __declspec(dllexport)
+#endif
 #include "yr_rules.h"
 
 #define SITE_RVA 0xA201F3
@@ -43,8 +50,8 @@ static const uint8_t SITE2_ORIG[6] = { 0x4C, 0x8B, 0xCB, 0x4C, 0x8B, 0xC5 };
 static uint8_t* g_site2;
 /* read from outside by offside_show.py through the export table */
 struct yr_off_state { uint32_t magic, events, found, logn; uint32_t log[16][4]; uint8_t offp[80]; };
-__declspec(dllexport) struct yr_off_state yr_off = { 0x3153464F, 0, 0, 0, {{0}}, {0} };
-__declspec(dllexport) uint32_t yr_parts = 0;
+FR_EXPORT struct yr_off_state yr_off = { 0x3153464F, 0, 0, 0, {{0}}, {0} };
+FR_EXPORT uint32_t yr_parts = 0;
 #define g_offp yr_off.offp
 #define g_off_events yr_off.events
 #define g_off_found yr_off.found
@@ -389,7 +396,7 @@ void yr_set_teams(uint32_t home, uint32_t away)
 
 /* out[0] = calls so far, out[1] = last rating of player 3650 times ten, out[2] = installed (bit 1 = offside hook, bit 2 = free kick rule),
    out[3] = matches saved; yr_stats2: out[0] = offsides seen, out[1] = passers found */
-__declspec(dllexport) void yr_stats(uint32_t* out)
+FR_EXPORT void yr_stats(uint32_t* out)
 {
   out[0] = g_calls;
   out[1] = g_last3650;
@@ -397,14 +404,14 @@ __declspec(dllexport) void yr_stats(uint32_t* out)
   out[3] = g_saved;
 }
 
-__declspec(dllexport) void yr_stats2(uint32_t* out)
+FR_EXPORT void yr_stats2(uint32_t* out)
 {
   out[0] = g_off_events;
   out[1] = g_off_found;
 }
 
 /* n-th most recent offside (0 = latest): out[0] = id of the player caught offside, out[1] = id of the passer; returns 0 when there is none */
-__declspec(dllexport) int yr_offside_log(uint32_t n, uint32_t* out)
+FR_EXPORT int yr_offside_log(uint32_t n, uint32_t* out)
 {
   if (n >= 16 || n >= g_off_logn) return 0;
   out[0] = g_off_log[(g_off_logn - 1 - n) & 15][0];

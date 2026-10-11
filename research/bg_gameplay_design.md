@@ -208,6 +208,13 @@ al щета, rsi индекс – PES2021_exe_research.md) и след 0x140481d
 - Експорти за външно четене запазени: yr_parts, yr_off, yr_stats, yr_stats2, yr_offside_log.
 - Първи старт с bg_gameplay (2026-10-10, лог от потребителя): всички 14 настройки и съдията сложени.
 
+## Публични версии BG / EN (2026-10-11)
+- `-DBG_RELEASE`: без [debug] (collision_log, rating_snaps), без запис на мачове и следене на 3650 (FR_RELEASE),
+  без експортите yr_*; остават само bg_gameplay_install / reload / log.
+- `-DLANG_EN`: английски текстове в лога и в ini по подразбиране (bg_gameplay_en.ini); Lua: `local EN = true`.
+- По искане на потребителя: в ini няма текст за съдията и Fair Rating (нямат настройка); в sider.log съдията се
+  появява само при грешка.
+
 ## Предстои
 - Тест в играта от потребителя (sider.log след старт и след F9).
 - Идея за по-късно: по-честа употреба на шпагати (slide_every_frame / slide_preference), виж по-горе.

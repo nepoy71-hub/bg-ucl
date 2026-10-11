@@ -24,6 +24,12 @@
 Експортите за четене отвън (`yr_parts`, `yr_off`, `yr_stats`, `yr_stats2`, `yr_offside_log`) са запазени –
 инструмент, който търси модула по име, трябва да търси `bg_gameplay.dll`.
 
+## Публични версии
+`release/bg/` и `release/en/` – готови за общността: DLL + lua + ini + README.txt, на български и на английски
+(текстовете в ini и в sider.log). Без дебъга за разработка: няма [debug] (лог на сблъсъците, запис на мачове),
+няма експорти за външни инструменти. Разработката ползва `bg_gameplay/bg_gameplay.dll` (с [debug]).
+build.sh строи и трите.
+
 ## Компилиране
 `./build.sh` (Linux, `pip install ziglang`). На Windows: `zig cc -target x86_64-windows-gnu -shared -O2 -o bg_gameplay.dll src/bg_gameplay.c src/fair_rating.c`
 (`src/default_ini.inc` се генерира от `bg_gameplay.ini` от build.sh).
