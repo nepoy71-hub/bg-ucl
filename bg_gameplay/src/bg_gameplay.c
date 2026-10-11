@@ -8,7 +8,8 @@
  * Research behind each change: research/bg_gameplay_design.md, ai_reaction_time.md,
  * gameplay_mix_analysis.md, injury_notes.md, constant_bins.md.
  *
- *   [defense]     def_pursuit_speed, profile (decide/foot/angle/press/react)
+ *   [movement]    ai_top_speed
+ *   [defense]     profile (decide/foot/angle/press/react)
  *   [press]       press_radius_normal, press_radius_far, sandwich_distance
  *   [slides]      slide, slidemax
  *   [injury]      injury_single_hit
@@ -114,7 +115,7 @@ enum {
   P_SINGLE, P_FINISH, P_HOOKA, P_HOOKB, P_COUNT
 };
 static site_t g_site[P_COUNT] = {
-  S(0x140A76084, 8, 0xf3,0x0f,0x10,0x05,0x78,0xbf,0xb2,0x01),          /* pursuit: speed level 4 = 28.0 */
+  S(0x140A76084, 8, 0xf3,0x0f,0x10,0x05,0x78,0xbf,0xb2,0x01),          /* ai_top_speed: movement level 4 target = 28.0 (all AI-run players, both teams) */
   S(0x1405BEF08, 8, 0xf3,0x0f,0x10,0x88,0x80,0x00,0x00,0x00),          /* decide: tackle.forecastHitRate */
   S(0x1405BEF02, 2, 0x75,0x2b),                                        /* decide: "near" without check */
   S(0x1405BEFBB, 2, 0x74,0x6c),                                        /* decide: "near" outside window */
@@ -138,7 +139,7 @@ static site_t g_site[P_COUNT] = {
   S(0x140481FBD, 8, 0x4c,0x8b,0xac,0x24,0x90,0x00,0x00,0x00),          /* collision log B (after the state update) */
 };
 static const char* SITE_NAME[P_COUNT] = {
-  "def_pursuit_speed", "decide", "decide", "decide", "foot", "foot", "press", "angle",
+  "ai_top_speed", "decide", "decide", "decide", "foot", "foot", "press", "angle",
   "react", "react", "react", "press_radius_normal", "press_radius_far", "sandwich_distance",
   "sandwich_distance", "slide", "slide", "slidemax", "injury_single_hit", "attack_finish_angle",
   "collision_log", "collision_log"
@@ -205,7 +206,7 @@ static const double PROF_DEF[3][5] = {
 static void defaults(settings_t* s)
 {
   memset(s, 0, sizeof *s);
-  s->pursuit = 36;
+  s->pursuit = 35;
   strcpy(s->profile, "fair");
   for (int k = 0; k < 5; k++) { (&s->decide)[k] = PROF_DEF[1][k]; }
   memcpy(s->prof, PROF_DEF, sizeof PROF_DEF);
@@ -270,8 +271,10 @@ static void read_ini(const char* path, settings_t* s)
     *eq = 0;
     char* k = trim(t);
     char* v = trim(eq + 1);
-    if (!_stricmp(sec, "defense") || !_stricmp(sec, "profile_custom")) {   /* custom values: [profile_custom] (or [defense]) */
-      if (!_stricmp(k, "def_pursuit_speed")) s->pursuit = num(v, 1, 60, 36, k);
+    if (!_stricmp(sec, "movement")) {
+      if (!_stricmp(k, "ai_top_speed")) s->pursuit = num(v, 1, 60, 35, k);
+    } else if (!_stricmp(sec, "defense") || !_stricmp(sec, "profile_custom")) {   /* custom values: [profile_custom] (or [defense]) */
+      if (!_stricmp(k, "def_pursuit_speed")) s->pursuit = num(v, 1, 60, 35, k);   /* old name */
       else if (!_stricmp(k, "profile")) { strncpy(s->profile, v, sizeof s->profile - 1); }
       else if (!_stricmp(k, "decide")) s->decide = num(v, 0, 1, 0.85, k);
       else if (!_stricmp(k, "foot")) s->foot = num(v, 0, 1, 0.85, k);
@@ -594,7 +597,7 @@ static void apply_all(void)
   read_ini(g_ini, &s);
   g_bad = 0;
 
-  set_float_knob(P_PURSUIT, D_PURSUIT, s.pursuit, "def_pursuit_speed", "");
+  set_float_knob(P_PURSUIT, D_PURSUIT, s.pursuit, "ai_top_speed", "");
   apply_profile(&s);
   set_float_knob(P_RNORM, D_RNORM, s.rnorm, "press_radius_normal", T(" м", " m"));
   set_float_knob(P_RFAR, D_RFAR, s.rfar, "press_radius_far", T(" м", " m"));

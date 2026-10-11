@@ -28,6 +28,8 @@ in the exe:
   shouldn't.
 
 What the mod fixes
+- Players without the cursor run with a higher top speed (35 instead of 28), on both teams. In defence
+  that means chasing and pressing, not strolling.
 - The AI defence sees the real ball, not your stick. There are 4 profiles: light, fair, strong and
   custom.
 - 1 v 1 reaction is more human: about 130 ms with the fair profile.
