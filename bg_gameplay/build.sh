@@ -9,6 +9,6 @@ open('src/default_ini.inc','w',encoding='utf-8').write('\n'.join(out)+'\n')
 "
 ZIG="${ZIG:-python3 -m ziglang}"
 $ZIG cc -target x86_64-windows-gnu -shared -O2 -fno-strict-aliasing -Wall -Wno-unused-function \
-    -o bg_gameplay.dll src/bg_gameplay.c
+    -o bg_gameplay.dll src/bg_gameplay.c src/fair_rating.c
 rm -f bg_gameplay.pdb bg_gameplay.lib
 ls -l bg_gameplay.dll

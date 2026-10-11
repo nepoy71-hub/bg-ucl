@@ -1,4 +1,4 @@
--- bg_gameplay.lua  -  зарежда bg_gameplay.dll: настройки на геймплея от bg_gameplay.ini (PES 2021, exe 1.01)
+-- bg_gameplay.lua  -  зарежда bg_gameplay.dll: настройки на геймплея от bg_gameplay.ini + Fair Rating (PES 2021, exe 1.01)
 -- Изисква в sider.ini: luajit.ext.enabled = 1
 -- DLL-ът и bg_gameplay.ini са в папката modules на Sider. Настройките се четат наново преди всеки мач.
 -- F9 пише в sider.log какво е направил DLL-ът до момента.
@@ -17,7 +17,7 @@ local function drain()
 end
 
 function m.set_teams(ctx, home, away)
-    if dll_reload then dll_reload() end
+    if dll_reload then dll_reload(tonumber(home) or 0, tonumber(away) or 0) end
     drain()
 end
 
@@ -33,7 +33,7 @@ function m.init(ctx)
         void* GetModuleHandleA(const char*);
         unsigned long GetLastError(void);
         typedef int  (*bg_gameplay_install_t)(uint64_t, const char*);
-        typedef void (*bg_gameplay_reload_t)(void);
+        typedef void (*bg_gameplay_reload_t)(uint32_t, uint32_t);
         typedef int  (*bg_gameplay_log_t)(char*, int);
     ]])
     local sep = string.char(92)

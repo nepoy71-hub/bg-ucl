@@ -13,8 +13,10 @@
  *   [slides]      slide, slidemax
  *   [injury]      injury_single_hit
  *   [ballcarrier] attack_finish_angle
- *   [debug]       collision_log
+ *   [debug]       collision_log, rating_snaps
  *   referee foul thresholds: fixed 38 / 35 / 70 / 105
+ *   Fair Rating (fair_rating.c): ratings by our rules, offside charged to the passer,
+ *   COM direct free kicks through the Place Kicking error -- always on, no ini values
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -179,6 +181,7 @@ typedef struct {
   double single;
   double finish;
   int collision_log;
+  char snaps[MAX_PATH];                         /* folder for saved matches, "" = none */
 } settings_t;
 
 static const char* PROF_NAME[3] = { "light", "fair", "strong" };
@@ -285,6 +288,7 @@ static void read_ini(const char* path, settings_t* s)
       if (!_stricmp(k, "attack_finish_angle")) s->finish = num(v, 1, 180, 85, k);
     } else if (!_stricmp(sec, "debug")) {
       if (!_stricmp(k, "collision_log")) s->collision_log = atoi(v) != 0;
+      else if (!_stricmp(k, "rating_snaps")) { strncpy(s->snaps, v, MAX_PATH - 2); s->snaps[MAX_PATH - 2] = 0; }
     }
   }
   fclose(f);
@@ -525,6 +529,33 @@ static int install_hooks(void)
   return 1;
 }
 
+/* ------------------------------------------------------------------ Fair Rating (fair_rating.c) */
+int yr_install(uint64_t exe_base);
+void yr_set_dir(const char* dir);
+void yr_set_teams(uint32_t home, uint32_t away);
+extern uint32_t yr_parts;
+
+static void fair_rating_install(void)
+{
+  int r = yr_install(g_base);
+  if (r == 1) { logmsg("bg_gameplay: Fair Rating -- непознати байтове на 0x140a201f3, не пипам"); return; }
+  if (r == 2 || r == 3) { logmsg("bg_gameplay: Fair Rating -- не се сложи (код %d)", r); return; }
+  logmsg("bg_gameplay: Fair Rating -- оценки %s, засада на подаващия %s, преки удари на компютъра %s",
+         yr_parts & 1 ? "да" : "НЕ", yr_parts & 2 ? "да" : "НЕ", yr_parts & 4 ? "да" : "НЕ");
+}
+
+static void fair_rating_dir(const char* d)
+{
+  char dir[MAX_PATH];
+  size_t n = strlen(d);
+  if (!n) { yr_set_dir(""); return; }
+  strcpy(dir, d);
+  if (dir[n - 1] != '\\' && dir[n - 1] != '/') { dir[n] = '\\'; dir[n + 1] = 0; }
+  CreateDirectoryA(dir, NULL);
+  yr_set_dir(dir);
+  logmsg("bg_gameplay: rating_snaps -> %s", dir);
+}
+
 /* ------------------------------------------------------------------ apply */
 static char g_ini[MAX_PATH];
 
@@ -564,6 +595,7 @@ static void apply_all(void)
   if (g_clog) {
     if (install_hooks()) logmsg("bg_gameplay: collision_log = 1 -> %s", g_clog_path);
   } else logmsg("bg_gameplay: collision_log = 0");
+  fair_rating_dir(s.snaps);
   if (g_bad) logmsg("bg_gameplay: %d настройки НЕ са сложени (виж по-горе)", g_bad);
 }
 
@@ -591,13 +623,16 @@ __declspec(dllexport) int bg_gameplay_install(uint64_t exe_base, const char* ini
       logmsg("bg_gameplay: блокът е твърде далеч от кода -- нищо не пипам"); return 3;
     }
   }
+  fair_rating_install();
   apply_all();
   return 0;
 }
 
-__declspec(dllexport) void bg_gameplay_reload(void)
+/* before each match: home / away team ids (Sider's set_teams) */
+__declspec(dllexport) void bg_gameplay_reload(uint32_t home, uint32_t away)
 {
   if (!g_blk) return;
+  yr_set_teams(home, away);
   logmsg("bg_gameplay: чета %s наново", g_ini);
   apply_all();
 }

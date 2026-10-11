@@ -198,6 +198,16 @@ al щета, rsi индекс – PES2021_exe_research.md) и след 0x140481d
   Куките се слагат само ако collision_log = 1 (след това остават, но при 0 не пишат нищо).
 - В DLL/ini/lua няма име на чужд мод и няма проверка за друг мод.
 
+## Fair Rating влезе в bg_gameplay.dll (2026-10-11)
+- По искане на потребителя двата проекта са обединени; стойностите на Fair Rating НЕ се изнасят в ini.
+- `bg_gameplay/src/fair_rating.c` = `fair_rating_src/fair_rating.c` без собствените Windows дефиниции, memset/memcpy и
+  входната точка; `yr_rules.h` без промяна (dev13). Места: 0x140A201F3 (оценка), 0x140A22246 (засада),
+  0x1406E352F / 0x1406E37E5 / 0x1406E3762 (преки удари) – сверени с дъмпа, не се застъпват с местата на bg_gameplay.
+- `bg_gameplay_install` вика `yr_install` веднъж; `bg_gameplay_reload(home, away)` (Lua: set_teams) вика `yr_set_teams`.
+- Запис на мачове (rating_snaps): само ако `[debug] rating_snaps = <папка>`; празно = без запис (както пакета за общността).
+- Експорти за външно четене запазени: yr_parts, yr_off, yr_stats, yr_stats2, yr_offside_log.
+- Първи старт с bg_gameplay (2026-10-10, лог от потребителя): всички 14 настройки и съдията сложени.
+
 ## Предстои
 - Тест в играта от потребителя (sider.log след старт и след F9).
 - Идея за по-късно: по-честа употреба на шпагати (slide_every_frame / slide_preference), виж по-горе.
