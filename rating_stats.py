@@ -20,6 +20,7 @@ import ctypes
 import ctypes.wintypes as w
 import json
 import re
+import math
 import struct
 import subprocess
 import sys
@@ -74,12 +75,9 @@ ROLES = {0: 'вратар', 1: 'централен защитник', 2: 'ляв
 
 GROUP = {0: 'GK', 1: 'DF', 2: 'DF', 3: 'DF', 4: 'MF', 5: 'MF', 6: 'MF',
          7: 'MF', 8: 'MF', 9: 'FW', 10: 'FW', 11: 'FW', 12: 'FW'}
-WORK_CAP = {'GK': 5.0, 'DF': 5.0, 'MF': 3.0, 'FW': 1.5}
 
 
 REF_VOLUME = 500.0
-FORGIVE = 0.3
-SUB_CREDIT = 1.1
 
 
 def volume_k(rows):
@@ -89,93 +87,63 @@ def volume_k(rows):
     return max(0.3, min(3.0, REF_VOLUME / tot))
 
 
+USUAL = {'GK': 0.90, 'DF': 1.02, 'MF': 1.00, 'FW': 0.44}
+SCALE = {'GK': 1.3, 'DF': 1.3, 'MF': 1.3, 'FW': 2.0}
+LOST = {'GK': 0.05, 'DF': 0.15, 'MF': 0.10, 'FW': 0.05}
+
+
 def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0):
-    if t_out - t_in < 5:
+    """Оценка, версия 2 (2026-10-11) – същата като yr_rules.h.
+
+    x = работа над обичайната за линията (по минути) + голове + асистенции + резултат
+        - допуснати (вратар/защитник) - картони, автоголове, пропуснати удари отблизо
+    оценка = 6.3 + 3.7*tanh(x/4.7) при x >= 0; 6.3 - 3.3*tanh(-x/3) при x < 0; 4+ гола = 10.
+    """
+    mins = t_out - t_in
+    if mins < 5:
         return None, ''
     g = lambda s_: stats.get(s_, 0)
     e = lambda s_: stats.get(s_, 0) * k
     grp = GROUP.get(pos, 'MF')
-    sot = max(0, g(17) - g(0)) * k
-    neg = 0.10 * (e(22) - e(23)) + 0.10 * offp * k
+    goals, ast = g(0), g(4)
+    if goals >= 4:
+        return 10.0, '4+ гола = 10'
+    share = min(90, mins) / 90.0
     wk = 0.04 * max(0, g(23) - offp) * k
     wk += 0.10 * e(27) + 0.05 * e(29) + 0.15 * e(31)
     wk += 0.30 * e(77) + 0.20 * e(54)
-    if grp == 'FW':
-        neg += min(0.3, 0.05 * e(89))
-        wk += 0.05 * sot
-    elif grp == 'MF':
-        neg += min(0.4, 0.10 * e(89))
-    elif grp == 'GK':
-        neg += min(0.3, 0.05 * e(89))
-    else:
-        neg += min(0.6, 0.15 * e(89))
     wk += 0.02 * e(66) + 0.01 * e(67)
-    neg += 0.05 * max(0, e(55) - e(56))
-    wk += 0.05 * sot
-    miss = (unq[1] - g(0)) * k
-    if g(0) == 0 and miss >= 3:
-        neg += 0.3 * (miss - 2)
-    full = t_out - t_in >= 60
-    share = min(90, t_out - t_in) / 90.0
+    wk += 0.10 * max(0, g(17) - goals) * k
     if grp == 'GK':
-        wk += 0.4 * e(133)
-        wk -= 0.15 * e(77)
-        if full:
-            wk += 0.3
-        neg += min(1.5, sum([0.5, 0.4, 0.3, 0.2, 0.1][:ga])) * share
-        if ga == 0 and full:
-            wk += 0.5
-    if grp == 'DF':
-        neg += min(1.2, sum([0.4, 0.3, 0.2, 0.15, 0.15][:ga])) * share
-        if ga == 0 and full:
-            wk += 0.2
-    if grp == 'FW' and g(0) == 0:
-        wk = min(wk * 2.0 - neg, 2.5)
-    elif g(0) == 0 and g(4) == 0:
-        wk -= neg
-        if wk > 1.5:
-            wk += wk - 1.5
-        wk = min(wk, 5.0)
-    else:
-        if grp == 'FW':
-            wk *= 2.0
-        wk = min(wk - neg, WORK_CAP[grp])
-    disc = -0.1 * g(57) - 0.75 * g(58) - 1.1 * g(1)
-    goals, ast = g(0), g(4)
-    base = 0.0
-    if goals >= 3:
-        base = 5.0
-    elif goals == 2:
-        base = 2.5
-    elif goals == 1:
-        base = 1.4
-    if ast >= 4:
-        base = 5.0
-    elif ast == 3:
-        base += 3.5
-    elif ast == 2:
-        base += 2.0
-    elif ast == 1:
-        base += 1.0
-    extra = 0.0
-    if goals > 0 and gf > ga and gf - goals <= ga:
-        extra = 0.2
-    team = min(0.1, 0.05 * gf) + (0.05 if gf > ga else 0.0)
-    r = 5.0 + wk + disc + base + extra + team
-    r += (1.0 - share) * SUB_CREDIT
-    neg -= disc
-    lim = 10.0 - max(0.0, neg - FORGIVE)
-    over = r > lim
-    r = min(r, lim)
-    r = max(3.0, min(10.0, r))
+        wk += 0.4 * e(133) - 0.15 * e(77)
+    neg = 0.10 * (e(22) - e(23)) + 0.10 * offp * k
+    neg += LOST[grp] * e(89)
+    neg += 0.05 * max(0, g(55) - g(56)) * k
+    work = (wk - neg - USUAL[grp] * share) * SCALE[grp]
+    x = work + 1.6 * goals + 1.1 * ast
+    extra = 0.3 if goals and gf > ga and gf - goals <= ga else 0.0
+    x += extra + (0.15 if gf > ga else 0.0)
+    conc = 0.0
+    if grp == 'GK':
+        conc = min(1.5, sum([0.5, 0.4, 0.3, 0.2, 0.1][:ga])) * share - (0.5 if ga == 0 and mins >= 60 else 0.0)
+    elif grp == 'DF':
+        conc = min(1.2, sum([0.4, 0.3, 0.2, 0.15, 0.15][:ga])) * share - (0.3 if ga == 0 and mins >= 60 else 0.0)
+    x -= conc
+    disc = 0.3 * g(57) + 1.5 * g(58) + 1.5 * g(1)
+    x -= disc
+    miss = (unq[1] - goals) * k
+    if miss > 2:
+        x -= 0.25 * (miss - 2)
+    r = 6.3 + 3.7 * math.tanh(x / 4.7) if x >= 0 else 6.3 - 3.3 * math.tanh(-x / 3.0)
     r = int(r * 10 + 0.5 + 1e-6) / 10.0
-    why = 'работа %+.2f, голове/асистенции %+.1f' % (wk, base)
+    why = 'работа %+.2f, голове/асистенции %+.1f' % (work, 1.6 * goals + 1.1 * ast)
     if extra:
         why += ', решаващ гол %+.1f' % extra
+    if conc:
+        why += ', допуснати / суха мрежа %+.2f' % -conc
     if disc:
-        why += ', картони/автогол %+.2f' % disc
-    if over and neg > FORGIVE:
-        why += ', таван 10 минус грешки %.2f (простени %.1f)' % (neg, FORGIVE)
+        why += ', картони/автогол %+.2f' % -disc
+    why += ' -> x %.2f' % x
     return r, why
 
 
@@ -875,7 +843,7 @@ def cmd_restore():
 
 def main():
     a = sys.argv[1:]
-    say('rating_stats 3.8')
+    say('rating_stats 4.0')
     try:
         if a == ['dump']:
             cmd_dump()
