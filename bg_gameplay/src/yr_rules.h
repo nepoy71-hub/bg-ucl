@@ -1,6 +1,5 @@
 /* The rating rules. Shared by the DLL and by the native test harness. */
 #include <stdint.h>
-#include <math.h>
 
 #define YR_ROOT_OFF   0x750D0
 #define YR_TEAM_SIZE  0x59650
@@ -32,70 +31,96 @@ static int yr_group(const uint8_t* rec)
   return pos < 0 ? 2 : grp[pos];
 }
 
-/* Rating, version 2 (2026-10-11).
- *
- * One net score x, in rating points, then one smooth curve to the 3..10 scale:
- *   x = work over the usual for his line (scaled by minutes) + goals + assists + result
- *       - goals conceded (GK / DF) - cards, own goals, missed close-range chances
- *   rating = 6.3 + 3.7 * tanh(x / 4.7)   for x >= 0   (never reaches 10)
- *          = 6.3 - 3.3 * tanh(-x / 3.0)  for x < 0    (never below 3)
- *   4 or more goals, or 3 goals + an assist = 10.
- * Every plus and every minus moves the rating the same way at any level: no ceiling
- * minus mistakes, so more goals or more work always count. "Work" = the per-action prices
- * below; the usual work of each line (median of full matches without a goal or assist in
- * the recorded matches) is the zero point, so all four lines start level.
- * returns the rating, or 0 when the player has under 5 minutes */
+/* returns the rating, or 0 when the player has under 5 minutes */
 static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, float k, int offp)
 {
   static const float conc_gk[5] = { 0.5f, 0.4f, 0.3f, 0.2f, 0.1f };
   static const float conc_df[5] = { 0.4f, 0.3f, 0.2f, 0.15f, 0.15f };
-  static const float usual[4] = { 0.90f, 1.02f, 1.00f, 0.44f };   /* GK DF MF FW */
-  static const float scale[4] = { 1.3f, 1.3f, 1.3f, 2.0f };
-  static const float lost[4] = { 0.05f, 0.15f, 0.10f, 0.05f };
+  static const float cap[4] = { 5.0f, 5.0f, 3.0f, 1.5f };
   int mins = (int)rec[YR_OUT] - (int)rec[YR_IN];
-  int grp, i, goals, ast, acc, sot;
-  float share, wk, neg, x, c, miss, r;
+  int grp, full, i, goals, ast, sot, acc;
+  float wk, neg, disc, base, extra, team, r, c, miss, sotk;
   if (mins < 5) return 0.0f;
   grp = yr_group(rec);
   goals = (int)yr_st(rec, 0);
   ast = (int)yr_st(rec, 4);
-  if (goals >= 4 || (goals == 3 && ast >= 1)) return 10.0f;   /* 4 goals, or 3 goals + an assist */
-  share = (float)(mins < 90 ? mins : 90) / 90.0f;
-  acc = (int)yr_st(rec, 23) - offp;
-  if (acc < 0) acc = 0;
   sot = (int)yr_st(rec, 17) - goals;
   if (sot < 0) sot = 0;
+  sotk = (float)sot * k;
+  acc = (int)yr_st(rec, 23) - offp;
+  if (acc < 0) acc = 0;
+  neg = 0.10f * k * (float)((int)yr_st(rec, 22) - (int)yr_st(rec, 23));
+  neg += 0.10f * k * (float)offp;
   wk = 0.04f * k * (float)acc;
   wk += k * (0.10f * yr_st(rec, 27) + 0.05f * yr_st(rec, 29) + 0.15f * yr_st(rec, 31));
   wk += k * (0.30f * yr_st(rec, 77) + 0.20f * yr_st(rec, 54));
+  if (grp == 3) {
+    neg += yr_minf(0.3f, 0.05f * k * yr_st(rec, 89));
+    wk += 0.05f * sotk;
+  } else if (grp == 2) {
+    neg += yr_minf(0.4f, 0.10f * k * yr_st(rec, 89));
+  } else if (grp == 0) {
+    neg += yr_minf(0.3f, 0.05f * k * yr_st(rec, 89));
+  } else {
+    neg += yr_minf(0.6f, 0.15f * k * yr_st(rec, 89));
+  }
   wk += k * (0.02f * yr_st(rec, 66) + 0.01f * yr_st(rec, 67));
-  wk += 0.10f * k * (float)sot;
-  if (grp == 0) wk += k * (0.4f * yr_st(rec, 133) - 0.15f * yr_st(rec, 77));
-  neg = 0.10f * k * (float)((int)yr_st(rec, 22) - (int)yr_st(rec, 23));
-  neg += 0.10f * k * (float)offp;
-  neg += lost[grp] * k * yr_st(rec, 89);
   i = (int)yr_st(rec, 55) - (int)yr_st(rec, 56);
   if (i > 0) neg += 0.05f * k * (float)i;
-  x = (wk - neg - usual[grp] * share) * scale[grp];
-  x += 1.6f * goals + 1.1f * ast;
-  if (goals > 0 && gf > ga && gf - goals <= ga) x += 0.3f;
-  if (gf > ga) x += 0.15f;
+  wk += 0.05f * sotk;
+  miss = (float)((int)unq[1] - goals) * k;
+  if (goals == 0 && miss >= 3.0f) neg += 0.3f * (miss - 2.0f);
+  full = mins >= 60;
   if (grp == 0) {
+    wk += 0.4f * k * yr_st(rec, 133);
+    wk -= 0.15f * k * yr_st(rec, 77);
+    if (full) wk += 0.3f;
     c = 0.0f;
     for (i = 0; i < ga && i < 5; i++) c += conc_gk[i];
-    x -= yr_minf(1.5f, c) * share;
-    if (ga == 0 && mins >= 60) x += 0.5f;
-  } else if (grp == 1) {
+    neg += yr_minf(1.5f, c);
+    if (ga == 0 && full) wk += 0.5f;
+  }
+  if (grp == 1) {
     c = 0.0f;
     for (i = 0; i < ga && i < 5; i++) c += conc_df[i];
-    x -= yr_minf(1.2f, c) * share;
-    if (ga == 0 && mins >= 60) x += 0.3f;
+    neg += yr_minf(1.2f, c);
+    if (ga == 0 && full) wk += 0.2f;
   }
-  x -= 0.3f * yr_st(rec, 57) + 1.5f * yr_st(rec, 58) + 1.5f * yr_st(rec, 1);
-  miss = (float)((int)unq[1] - goals) * k;
-  if (miss > 2.0f) x -= 0.25f * (miss - 2.0f);
-  if (x >= 0.0f) r = 6.3f + 3.7f * tanhf(x / 4.7f);
-  else r = 6.3f - 3.3f * tanhf(-x / 3.0f);
+  if (grp == 3 && goals == 0) {
+    wk *= 2.0f;
+    wk -= neg;
+    if (wk > 2.5f) wk = 2.5f;
+  } else if (goals == 0 && ast == 0) {
+    wk -= neg;
+    if (wk > 1.5f) wk += wk - 1.5f;
+    if (wk > 5.0f) wk = 5.0f;
+  } else {
+    if (grp == 3) wk *= 2.0f;
+    wk -= neg;
+    if (wk > cap[grp]) wk = cap[grp];
+  }
+  disc = -0.1f * yr_st(rec, 57) - 0.75f * yr_st(rec, 58) - 1.1f * yr_st(rec, 1);
+  base = 0.0f;
+  if (goals >= 3) base = 5.0f;
+  else if (goals == 2) base = 2.5f;
+  else if (goals == 1) base = 1.4f;
+  if (ast >= 4) base = 5.0f;
+  else if (ast == 3) base += 3.5f;
+  else if (ast == 2) base += 2.0f;
+  else if (ast == 1) base += 1.0f;
+  extra = 0.0f;
+  if (goals > 0 && gf > ga && gf - goals <= ga) extra = 0.2f;
+  team = yr_minf(0.1f, 0.05f * gf) + (gf > ga ? 0.05f : 0.0f);
+  r = 5.0f + wk + disc + base + extra + team;
+  neg -= disc;
+  neg -= 0.3f;
+  if (neg < 0.0f) neg = 0.0f;
+  /* forward who scored: no "10 minus mistakes" ceiling -- his mistakes are already taken from the
+     score (in wk and disc), so a big surplus over 10 (a hat-trick) is not pulled under 10 by small
+     ones (2026-10-11). Everyone else as before. */
+  if (!(grp == 3 && goals > 0)) r = yr_minf(r, 10.0f - neg);
+  if (r < 3.0f) r = 3.0f;
+  if (r > 10.0f) r = 10.0f;
   r = (float)(int)(r * 10.0f + 0.5f + 0.0001f) / 10.0f;
   return r;
 }
