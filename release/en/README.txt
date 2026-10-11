@@ -23,4 +23,5 @@ Settings
 Works only with PES2021.exe version 1.01. With any other version it changes nothing.
 
 If something goes wrong
-- Start the game, press F9 and send the lines with "bg_gameplay" from sider.log.
+- bg_gameplay writes to sider.log only when something is wrong. No lines with "bg_gameplay" = all is fine.
+  If there are any, send them.

@@ -1,7 +1,7 @@
 -- bg_gameplay.lua  -  зарежда bg_gameplay.dll: настройки на геймплея от bg_gameplay.ini + Fair Rating (PES 2021, exe 1.01)
 -- Изисква в sider.ini: luajit.ext.enabled = 1
 -- DLL-ът и bg_gameplay.ini са в папката modules на Sider. Настройките се четат наново преди всеки мач.
--- F9 пише в sider.log какво е направил DLL-ът до момента.
+-- В sider.log се пише само при проблем; ако няма редове с bg_gameplay, всичко е сложено.
 
 local m = {}
 
@@ -23,10 +23,6 @@ end
 function m.set_teams(ctx, home, away)
     if dll_reload then dll_reload(tonumber(home) or 0, tonumber(away) or 0) end
     drain()
-end
-
-function m.key_down(ctx, vkey)
-    if vkey == 0x78 then drain() end
 end
 
 function m.init(ctx)
@@ -63,8 +59,6 @@ function m.init(ctx)
     end
     dll_reload = ffi.cast("bg_gameplay_reload_t", pr)
     ctx.register("set_teams", m.set_teams)
-    ctx.register("key_down", m.key_down)
-    log(T("bg_gameplay: готов (F9 = отчет в sider.log)", "bg_gameplay: ready (F9 = report in sider.log)"))
 end
 
 return m
