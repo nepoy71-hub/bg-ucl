@@ -19,7 +19,7 @@ in the exe:
   "chasing the score" and another +1 for "attacking". Losing? Kick harder. Fair play, Konami style.
 - One slide from behind is enough for an injury. Not a build-up, not bad luck, but one rule: a hit
   over 85 damage, a fall in the opponent's half, a foul, done. A slide from behind at speed is
-  100-125. Maximum injury resistance? Konami doesn't count it.
+  100-125. Maximum injury resistance? It helps if the dice roll your way.
 - AI direct free kicks. The game has an error rule based on the taker's Place Kicking. Except it is
   skipped whenever kick power is above zero. For the AI it is always above zero. So its ball goes
   EXACTLY where it decided: top corner, over the wall, every time. Your kicks still go through the
