@@ -176,17 +176,15 @@ def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0, conc_b=None)
     if goals >= 3:
         base = 5.0
     elif goals == 2:
-        base = 2.5
+        base = 2.3
     elif goals == 1:
         base = 1.4
+    # асистенции 1.3 / 2.0 / 3.0; 3/4 от това за играч, който е вкарал и гол (2026-10-12)
+    av = {0: 0.0, 1: 1.3, 2: 2.0, 3: 3.0}.get(ast, 5.0)
     if ast >= 4:
         base = 5.0
-    elif ast == 3:
-        base += 3.5
-    elif ast == 2:
-        base += 2.0
-    elif ast == 1:
-        base += 1.3
+    else:
+        base += av * (0.75 if goals else 1.0)
     extra = 0.0
     if goals > 0 and gf > ga and gf - goals <= ga:
         extra = 0.2
@@ -915,7 +913,7 @@ def cmd_restore():
 
 def main():
     a = sys.argv[1:]
-    say('rating_stats 4.1')
+    say('rating_stats 4.2')
     try:
         if a == ['dump']:
             cmd_dump()

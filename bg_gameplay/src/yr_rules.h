@@ -129,12 +129,14 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
   disc = -0.1f * yr_st(rec, 57) - 0.75f * yr_st(rec, 58) - 1.1f * yr_st(rec, 1);
   base = 0.0f;
   if (goals >= 3) base = 5.0f;
-  else if (goals == 2) base = 2.5f;
+  else if (goals == 2) base = 2.3f;
   else if (goals == 1) base = 1.4f;
   if (ast >= 4) base = 5.0f;
-  else if (ast == 3) base += 3.5f;
-  else if (ast == 2) base += 2.0f;
-  else if (ast == 1) base += 1.3f;
+  else {
+    /* assists: 1.3 / 2.0 / 3.0; three quarters of that for a player who also scored (2026-10-12) */
+    static const float av[4] = { 0.0f, 1.3f, 2.0f, 3.0f };
+    base += av[ast] * (goals ? 0.75f : 1.0f);
+  }
   extra = 0.0f;
   if (goals > 0 && gf > ga && gf - goals <= ga) extra = 0.2f;
   team = yr_minf(0.1f, 0.05f * gf) + (gf > ga ? 0.05f : 0.0f);
