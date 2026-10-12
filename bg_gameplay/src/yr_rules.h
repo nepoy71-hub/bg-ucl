@@ -60,6 +60,8 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
 {
   /* substitute: credit for the minutes not played = the usual work of his line over a full match */
   static const float sub_credit[4] = { 0.6f, 0.6f, 1.0f, 1.0f };
+  /* usual full-match work of the line (median of matches without a goal or assist; FW after doubling) */
+  static const float usual_w[4] = { 0.9f, 1.0f, 0.9f, 0.9f };
   static const float conc_gk[5] = { 0.5f, 0.4f, 0.3f, 0.2f, 0.1f };
   static const float conc_df[5] = { 0.4f, 0.3f, 0.2f, 0.15f, 0.15f };
   static const float cap[4] = { 5.0f, 5.0f, 3.0f, 1.5f };
@@ -110,17 +112,18 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
     neg += yr_conc_pen(conc_df, 1.2f, ga_on);
     if (ga_on == 0.0f && full) wk += 0.2f;
   }
-  if (grp == 3 && goals == 0) {
+  if (grp == 3 && goals == 0 && ast == 0) {
     wk *= 2.0f;
     wk -= neg;
     if (wk > 2.5f) wk = 2.5f;
   } else if (goals == 0 && ast == 0) {
     wk -= neg;
-    if (wk > 1.5f) wk += wk - 1.5f;
     if (wk > 5.0f) wk = 5.0f;
   } else {
+    /* with a goal or an assist only the work above the usual for his line counts (by minutes):
+       the usual work is already in the goal / assist base */
     if (grp == 3) wk *= 2.0f;
-    wk -= neg;
+    wk -= neg + usual_w[grp] * share;
     if (wk > cap[grp]) wk = cap[grp];
   }
   disc = -0.1f * yr_st(rec, 57) - 0.75f * yr_st(rec, 58) - 1.1f * yr_st(rec, 1);
@@ -131,12 +134,12 @@ static float yr_rate(const uint8_t* rec, const uint32_t* unq, int gf, int ga, fl
   if (ast >= 4) base = 5.0f;
   else if (ast == 3) base += 3.5f;
   else if (ast == 2) base += 2.0f;
-  else if (ast == 1) base += 1.0f;
+  else if (ast == 1) base += 1.3f;
   extra = 0.0f;
   if (goals > 0 && gf > ga && gf - goals <= ga) extra = 0.2f;
   team = yr_minf(0.1f, 0.05f * gf) + (gf > ga ? 0.05f : 0.0f);
   r = 5.0f + wk + disc + base + extra + team;
-  r += (1.0f - share) * sub_credit[grp];
+  if (goals == 0 && ast == 0) r += (1.0f - share) * sub_credit[grp];
   neg -= disc;
   neg -= 0.3f;
   if (neg < 0.0f) neg = 0.0f;

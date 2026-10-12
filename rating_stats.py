@@ -80,6 +80,8 @@ WORK_CAP = {'GK': 5.0, 'DF': 5.0, 'MF': 3.0, 'FW': 1.5}
 REF_VOLUME = 500.0
 FORGIVE = 0.3
 # смяна: бонус за неизиграните минути = (1 - минути/90) x обичайната работа на линията за цял мач
+# обичайна работа за цял мач (медиана на мачове без гол/асистенция; нападател след удвояването)
+USUAL_W = {'GK': 0.9, 'DF': 1.0, 'MF': 0.9, 'FW': 0.9}
 SUB_CREDIT = {'GK': 0.6, 'DF': 0.6, 'MF': 1.0, 'FW': 1.0}
 # граници на 15-минутните интервали, в които играта пази головете (6 за редовното време + 2 за продълженията)
 BUCKETS = [(0, 15), (15, 30), (30, 45), (45, 60), (60, 75), (75, 90), (90, 105), (105, 120)]
@@ -157,17 +159,17 @@ def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0, conc_b=None)
         neg += conc_pen([0.4, 0.3, 0.2, 0.15, 0.15], 1.2, ga_on)
         if ga_on == 0 and full:
             wk += 0.2
-    if grp == 'FW' and g(0) == 0:
+    if grp == 'FW' and g(0) == 0 and g(4) == 0:
         wk = min(wk * 2.0 - neg, 2.5)
     elif g(0) == 0 and g(4) == 0:
         wk -= neg
-        if wk > 1.5:
-            wk += wk - 1.5
         wk = min(wk, 5.0)
     else:
+        # с гол или асистенция: работата се брои само над обичайната за линията (по минути);
+        # обичайната е вече в базата за гол/асистенция
         if grp == 'FW':
             wk *= 2.0
-        wk = min(wk - neg, WORK_CAP[grp])
+        wk = min(wk - neg - USUAL_W[grp] * share, WORK_CAP[grp])
     disc = -0.1 * g(57) - 0.75 * g(58) - 1.1 * g(1)
     goals, ast = g(0), g(4)
     base = 0.0
@@ -184,13 +186,14 @@ def our_rating(pos, t_in, t_out, stats, unq, gf, ga, k=1.0, offp=0, conc_b=None)
     elif ast == 2:
         base += 2.0
     elif ast == 1:
-        base += 1.0
+        base += 1.3
     extra = 0.0
     if goals > 0 and gf > ga and gf - goals <= ga:
         extra = 0.2
     team = min(0.1, 0.05 * gf) + (0.05 if gf > ga else 0.0)
     r = 5.0 + wk + disc + base + extra + team
-    r += (1.0 - share) * SUB_CREDIT[grp]
+    if not (g(0) or g(4)):
+        r += (1.0 - share) * SUB_CREDIT[grp]
     neg -= disc
     lim = 10.0 - max(0.0, neg - FORGIVE)
     if grp == 'FW' and goals > 0:
@@ -912,7 +915,7 @@ def cmd_restore():
 
 def main():
     a = sys.argv[1:]
-    say('rating_stats 4.0')
+    say('rating_stats 4.1')
     try:
         if a == ['dump']:
             cmd_dump()
